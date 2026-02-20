@@ -76,13 +76,34 @@ agent_system:
   handoff_timeout: 30  # seconds to wait for agent handoffs
 
 # Fee Configuration (IBKR)
+# Choose one of three plans: "lite", "pro_fixed", "pro_tiered"
 fees:
-  ibkr_plan: "pro"  # Options: "pro", "lite", "tiered"
-  per_share_rate: 0.005  # $0.005 per share (IBKR Pro)
-  min_commission: 1.00  # Minimum $1.00 per order
-  max_commission_pct: 0.01  # Maximum 1% of trade value
-  sec_fee_rate: 0.0000278  # SEC fee: $27.80 per $1M (sells only)
-  finra_taf_rate: 0.000166  # FINRA TAF: $0.166 per 1000 shares (sells only)
+  # ========== CURRENT PLAN ==========
+  ibkr_plan: "pro_fixed"  # Options: "lite", "pro_fixed", "pro_tiered"
+
+  # ========== IBKR PRO FIXED SETTINGS ==========
+  # Used only if ibkr_plan = "pro_fixed"
+  per_share_rate: 0.005      # $0.005 per share
+  min_commission: 1.00       # Minimum $1.00 per order
+  max_commission_pct: 0.01   # Maximum 1% of trade value
+
+  # ========== REGULATORY FEES (ALL PLANS) ==========
+  sec_fee_rate: 0.0000278    # SEC fee: $27.80 per $1M (sells only)
+  finra_taf_rate: 0.000166   # FINRA TAF: $0.166 per 1000 shares (sells only)
+
+  # ========== PLAN DESCRIPTIONS ==========
+  # LITE:
+  #   - $0 commission on US stocks/ETFs
+  #   - Best for: beginners, buy & hold, low volume
+  #
+  # PRO_FIXED:
+  #   - $0.005/share (min $1, max 1%)
+  #   - Best for: active traders, predictable costs
+  #
+  # PRO_TIERED:
+  #   - Volume-based rates (0.0035 to 0.0015 per share)
+  #   - Rebates for adding liquidity
+  #   - Best for: high frequency, algo trading, high volume
 
 # Monitoring Configuration
 monitoring:
