@@ -22,18 +22,23 @@ class OrderState:
 
 class TradeExecutor:
     """Handles trade execution and order management"""
-    
-    def __init__(self, api_connector: IBClient):
+
+    def __init__(self, api_connector: IBClient, config: dict = None):
         """
         Initialize trade executor
-        
+
         Args:
             api_connector: API connector for trade execution
+            config: Trading configuration (optional)
         """
         self.api_connector = api_connector
+        self.config = config or {}
         self.logger = logging.getLogger(__name__)
         self.orders = {}  # Order ID to OrderState mapping
         self.symbol_orders = defaultdict(list)  # Symbol to Order IDs mapping
+
+        # Get slippage tolerance from config
+        self.slippage_tolerance = self.config.get('execution', {}).get('slippage_tolerance', 0.001)
     
     def execute_trade(self, trade_params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -121,14 +126,28 @@ class TradeExecutor:
         """Place the main market order"""
         try:
             self.logger.info(f"Placing main order for {trade_params['symbol']}")
-            
+
+            expected_price = trade_params['price']
+
             order = self.api_connector.placeOrder(
                 symbol=trade_params['symbol'],
                 order_type='market',
                 quantity=trade_params['size']
             )
-            
+
             if order:
+                filled_price = order.get('filled_price', expected_price)
+
+                # Validate slippage
+                if not self.validate_execution(expected_price, filled_price, 'market'):
+                    self.logger.error(
+                        f"Order rejected due to excessive slippage. "
+                        f"Expected: ${expected_price:.2f}, Filled: ${filled_price:.2f}"
+                    )
+                    # Cancel the order if slippage too high
+                    self._cancel_order(order['order_id'])
+                    return None
+
                 # Create and store order state
                 order_state = OrderState(
                     order_id=order['order_id'],
@@ -137,15 +156,15 @@ class TradeExecutor:
                     quantity=trade_params['size']
                 )
                 self._store_order_state(order_state)
-                
+
                 return {
                     'order_id': order['order_id'],
                     'status': order['status'],
-                    'filled_price': order.get('filled_price', trade_params['price'])
+                    'filled_price': filled_price
                 }
-                
+
             return None
-            
+
         except Exception as e:
             self.logger.exception(f"Error placing main order: {str(e)}")
             return None
@@ -284,3 +303,84 @@ class TradeExecutor:
         except Exception as e:
             self.logger.exception(f"Error getting daily trades: {str(e)}")
             return []
+
+    def _calculate_slippage(self, expected_price: float, filled_price: float) -> float:
+        """
+        Calculate actual slippage
+
+        Args:
+            expected_price: Expected execution price
+            filled_price: Actual filled price
+
+        Returns:
+            Slippage as a percentage (0.01 = 1%)
+        """
+        if expected_price <= 0:
+            return 0.0
+
+        slippage = abs(filled_price - expected_price) / expected_price
+        return slippage
+
+    def _validate_slippage(self, expected_price: float, filled_price: float,
+                          order_type: str = 'market') -> Dict[str, Any]:
+        """
+        Validate that slippage is within acceptable tolerance
+
+        Args:
+            expected_price: Expected execution price
+            filled_price: Actual filled price
+            order_type: Type of order (market, limit, etc.)
+
+        Returns:
+            Dictionary with validation result
+        """
+        slippage = self._calculate_slippage(expected_price, filled_price)
+
+        # Log slippage
+        self.logger.info(
+            f"Slippage detected: {slippage:.4%} "
+            f"(Expected: ${expected_price:.2f}, Filled: ${filled_price:.2f})"
+        )
+
+        # Check against tolerance
+        if slippage <= self.slippage_tolerance:
+            return {
+                'valid': True,
+                'slippage': slippage,
+                'within_tolerance': True
+            }
+
+        # Slippage exceeded tolerance
+        self.logger.warning(
+            f"⚠️ Slippage {slippage:.4%} exceeds tolerance {self.slippage_tolerance:.4%}"
+        )
+
+        return {
+            'valid': False,
+            'slippage': slippage,
+            'within_tolerance': False,
+            'reason': f'Slippage {slippage:.4%} exceeds tolerance {self.slippage_tolerance:.4%}'
+        }
+
+    def validate_execution(self, expected_price: float, filled_price: float,
+                          order_type: str = 'market') -> bool:
+        """
+        Validate order execution quality
+
+        Args:
+            expected_price: Expected execution price
+            filled_price: Actual filled price
+            order_type: Type of order
+
+        Returns:
+            True if execution is acceptable, False otherwise
+        """
+        validation = self._validate_slippage(expected_price, filled_price, order_type)
+
+        if not validation['valid']:
+            self.logger.error(
+                f"Order execution rejected: {validation['reason']}"
+            )
+            return False
+
+        return True

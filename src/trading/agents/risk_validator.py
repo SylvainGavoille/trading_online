@@ -113,7 +113,12 @@ class RiskValidator:
             loss_check = self._check_daily_loss_limit(portfolio)
             if not loss_check['approved']:
                 return self._create_rejection_response(risk_parameters, loss_check['reason'])
-                
+
+            # Max Drawdown Check
+            drawdown_check = self._check_max_drawdown(portfolio)
+            if not drawdown_check['approved']:
+                return self._create_rejection_response(risk_parameters, drawdown_check['reason'])
+
             # Trade Frequency Check
             frequency_check = self._check_trade_frequency(trade_params['symbol'])
             if not frequency_check['approved']:
@@ -247,12 +252,34 @@ class RiskValidator:
         """Check if within daily loss limits"""
         daily_loss = portfolio.get('daily_loss', 0)
         daily_loss_limit = self.risk_config['loss_limits']['daily_loss_limit']
-        
+
         if daily_loss <= daily_loss_limit:
             return {'approved': True}
         return {
             'approved': False,
             'reason': f'Daily loss ${daily_loss:.2f} exceeds limit of ${daily_loss_limit:.2f}'
+        }
+
+    def _check_max_drawdown(self, portfolio: Dict[str, Any]) -> Dict[str, Any]:
+        """Check if within maximum drawdown limits"""
+        peak_value = portfolio.get('peak_value', portfolio.get('total_value', 0))
+        current_value = portfolio.get('total_value', 0)
+
+        if peak_value <= 0:
+            return {
+                'approved': False,
+                'reason': 'Invalid portfolio peak value'
+            }
+
+        # Calculate current drawdown
+        drawdown = (peak_value - current_value) / peak_value
+        max_drawdown = self.risk_config['loss_limits']['max_drawdown']
+
+        if drawdown <= max_drawdown:
+            return {'approved': True}
+        return {
+            'approved': False,
+            'reason': f'Current drawdown {drawdown:.2%} exceeds maximum allowed {max_drawdown:.2%}'
         }
     
     def _create_rejection_response(self, risk_parameters: Dict[str, str], 
