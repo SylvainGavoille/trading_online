@@ -1,0 +1,20 @@
+[project]
+name = "trading-online"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "colorama>=0.4.6",
+    "ib-insync>=0.9.86",
+    "ibapi>=9.81.1.post1",
+    "numpy>=2.4.2",
+    "pandas>=3.0.1",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "swarm",
+    "textblob>=0.19.0",
+]
+
+[tool.uv.sources]
+swarm = { git = "https://github.com/openai/swarm.git" }

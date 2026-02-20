@@ -1,0 +1,84 @@
+{
+    "id": "adv-algo",
+    "title": "Advanced Trading Algorithms",
+    "description": "Implement and test advanced trading strategies including mean reversion and momentum indicators",
+    "duration": "60 minutes",
+    "steps": [
+        {
+            "id": "mean-reversion-setup",
+            "title": "Mean Reversion Strategy Implementation",
+            "description": "Set up a basic mean reversion trading strategy using moving averages",
+            "task": "Implement the following mean reversion strategy components in your config:",
+            "code_template": {
+                "language": "yaml",
+                "template": "trading_strategies:\n  mean_reversion:\n    enabled: true\n    parameters:\n      # Add your parameters here\n      sma_period: \n      std_dev_multiplier: \n      entry_threshold: \n      exit_threshold: "
+            },
+            "solution": {
+                "code": "trading_strategies:\n  mean_reversion:\n    enabled: true\n    parameters:\n      sma_period: 20\n      std_dev_multiplier: 2.0\n      entry_threshold: 0.02\n      exit_threshold: 0.01",
+                "explanation": "This configuration sets up a mean reversion strategy that:\n- Uses a 20-period SMA for the mean price\n- Sets bands at 2 standard deviations\n- Enters when price deviates 2% from mean\n- Exits when price returns to within 1% of mean"
+            }
+        },
+        {
+            "id": "momentum-indicators",
+            "title": "Adding Momentum Indicators",
+            "description": "Enhance the strategy with momentum indicators to confirm trading signals",
+            "task": "Add RSI and MACD parameters to your strategy configuration:",
+            "code_template": {
+                "language": "yaml",
+                "template": "trading_strategies:\n  mean_reversion:\n    momentum_filters:\n      rsi:\n        enabled: true\n        parameters:\n          # Add RSI parameters\n      macd:\n        enabled: true\n        parameters:\n          # Add MACD parameters"
+            },
+            "solution": {
+                "code": "trading_strategies:\n  mean_reversion:\n    momentum_filters:\n      rsi:\n        enabled: true\n        parameters:\n          period: 14\n          overbought: 70\n          oversold: 30\n      macd:\n        enabled: true\n        parameters:\n          fast_period: 12\n          slow_period: 26\n          signal_period: 9\n          threshold: 0.0002",
+                "explanation": "This configuration:\n- Uses RSI to identify overbought/oversold conditions\n- Adds MACD for trend confirmation\n- Combines both indicators with mean reversion signals"
+            }
+        },
+        {
+            "id": "strategy-backtest",
+            "title": "Strategy Backtesting",
+            "description": "Implement backtesting code to evaluate strategy performance",
+            "task": "Complete the backtest configuration with appropriate parameters:",
+            "code_template": {
+                "language": "yaml",
+                "template": "backtesting:\n  settings:\n    start_date: \n    end_date: \n    initial_capital: \n    commission: \n  metrics:\n    # Add required metrics\n  data_settings:\n    timeframe: \n    symbols: "
+            },
+            "solution": {
+                "code": "backtesting:\n  settings:\n    start_date: \"2023-01-01\"\n    end_date: \"2023-12-31\"\n    initial_capital: 100000\n    commission: 0.001\n  metrics:\n    - \"total_return\"\n    - \"sharpe_ratio\"\n    - \"max_drawdown\"\n    - \"win_rate\"\n  data_settings:\n    timeframe: \"1d\"\n    symbols: [\"AAPL\", \"MSFT\", \"GOOGL\"]",
+                "explanation": "This backtest configuration:\n- Tests strategy over the year 2023\n- Starts with $100,000 capital\n- Includes 0.1% commission per trade\n- Tracks key performance metrics\n- Tests on major tech stocks"
+            }
+        }
+    ],
+    "validation": {
+        "criteria": [
+            {
+                "description": "Mean reversion parameters are within reasonable ranges",
+                "check": {
+                    "sma_period": {"min": 10, "max": 50},
+                    "std_dev_multiplier": {"min": 1.5, "max": 3.0}
+                }
+            },
+            {
+                "description": "Momentum indicators are properly configured",
+                "check": {
+                    "rsi_period": {"min": 7, "max": 21},
+                    "macd_fast": {"min": 8, "max": 16}
+                }
+            },
+            {
+                "description": "Backtest configuration includes required metrics",
+                "required_metrics": [
+                    "total_return",
+                    "sharpe_ratio",
+                    "max_drawdown"
+                ]
+            }
+        ]
+    },
+    "completion_message": "Congratulations! You've successfully implemented and configured an advanced trading strategy with mean reversion and momentum indicators. The next step is to run this strategy on historical data and analyze its performance.",
+    "hints": [
+        "Mean reversion works best on range-bound markets",
+        "Consider using shorter SMA periods for more frequent signals",
+        "RSI can help confirm mean reversion signals",
+        "MACD helps identify trend strength",
+        "Always backtest with realistic commission rates"
+    ]
+}

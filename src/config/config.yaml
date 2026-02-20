@@ -1,0 +1,83 @@
+api:
+  tws_endpoint: "127.0.0.1"
+  port: 4002  # IB Gateway Paper Trading (4002), TWS Paper (7497)
+
+# Technical Analysis Configuration
+technical_analysis:
+  indicators:
+    sma_periods: [20, 50, 200]  # Multiple SMAs for different timeframes
+    ema_periods: [12, 26]  # For MACD
+    rsi:
+      period: 14
+      overbought: 70
+      oversold: 30
+    macd:
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+    bollinger_bands:
+      period: 20
+      std_dev: 2
+    volume_ma_period: 20
+
+# Sentiment Analysis Configuration
+sentiment_analysis:
+  news:
+    update_interval: 300  # seconds
+    lookback_period: 86400  # 24 hours in seconds
+    min_articles: 5
+  social:
+    update_interval: 180  # seconds
+    platforms: ["twitter", "reddit"]
+    min_mentions: 10
+  weights:
+    news: 0.6
+    social: 0.4
+
+# Risk Management Configuration
+risk_management:
+  position_limits:
+    max_position_size: 100  # maximum position size in shares
+    max_portfolio_exposure: 0.25  # maximum exposure as fraction of portfolio
+  loss_limits:
+    daily_loss_limit: 1000  # maximum daily loss in base currency
+    max_drawdown: 0.15  # maximum drawdown as fraction of portfolio
+  trade_frequency:
+    min_time_between_trades: 300  # minimum seconds between trades
+    max_daily_trades: 10  # maximum number of trades per day
+  stop_loss:
+    atr_multiplier: 2  # multiply ATR for dynamic stop loss
+    max_loss_per_trade: 0.02  # maximum loss per trade as fraction of portfolio
+  risk_reward:
+    min_ratio: 2.0  # minimum risk/reward ratio required for trade approval
+    target_ratio: 3.0  # ideal risk/reward ratio
+
+# Trading Execution Configuration
+execution:
+  order_types: ["market", "limit"]
+  default_order_type: "limit"
+  limit_order_timeout: 60  # seconds to wait for limit order
+  slippage_tolerance: 0.001  # maximum acceptable slippage
+  position_sizing:
+    method: "risk_based"  # risk_based or fixed_size
+    risk_per_trade: 0.01  # 1% risk per trade
+    default_size: 10  # default position size if fixed
+
+# Agent System Configuration
+agent_system:
+  update_interval: 60  # seconds between full system updates
+  confidence_thresholds:
+    technical: 0.7  # minimum technical signal strength
+    sentiment: 0.6  # minimum sentiment signal strength
+    combined: 0.65  # minimum combined signal strength
+  signal_weights:
+    technical: 0.7
+    sentiment: 0.3
+  handoff_timeout: 30  # seconds to wait for agent handoffs
+
+# Monitoring Configuration
+monitoring:
+  log_level: "INFO"
+  metrics_interval: 300  # seconds between metrics updates
+  save_trades: true
+  save_signals: true

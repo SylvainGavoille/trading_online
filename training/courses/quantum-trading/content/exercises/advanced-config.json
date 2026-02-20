@@ -1,0 +1,36 @@
+{
+    "id": "adv-config",
+    "title": "Advanced Configuration Exercise",
+    "description": "Configure risk management parameters for your trading system",
+    "template": "# Edit this configuration:\nrisk_management:\n  position_limits:\n    max_position_size: ???\n    max_portfolio_exposure: ???\n  loss_limits:\n    daily_loss_limit: ???\n    max_drawdown: ???",
+    "validation": {
+        "rules": {
+            "max_position_size": {
+                "type": "number",
+                "min": 1,
+                "max": 1000
+            },
+            "max_portfolio_exposure": {
+                "type": "number",
+                "min": 0.1,
+                "max": 1.0
+            },
+            "daily_loss_limit": {
+                "type": "number",
+                "min": 100,
+                "max": 10000
+            },
+            "max_drawdown": {
+                "type": "number",
+                "min": 0.1,
+                "max": 0.5
+            }
+        },
+        "feedback": {
+            "success": "Configuration looks good! The values are within reasonable ranges.",
+            "incomplete": "Configuration is incomplete. Make sure to include all required parameters.",
+            "invalid_range": "Some values appear to be outside reasonable ranges. Please review your configuration.",
+            "syntax_error": "Invalid configuration format. Please check your syntax."
+        }
+    }
+}

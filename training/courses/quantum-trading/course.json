@@ -1,0 +1,194 @@
+{
+    "id": "quantum-trading",
+    "title": "Quantum Trader Training Program",
+    "description": "A comprehensive training program for the Quantum Trader platform",
+    "version": "1.0.0",
+    "levels": [
+        {
+            "id": "level1",
+            "title": "Getting Started (Trader - Basic)",
+            "duration": "1-2 weeks",
+            "prerequisites": [
+                "Basic understanding of stock trading",
+                "Python installed (3.10+)",
+                "Interactive Brokers account with TWS/Gateway"
+            ],
+            "topics": [
+                {
+                    "id": "introduction",
+                    "title": "Introduction to Quantum Trader",
+                    "type": "tutorial",
+                    "content": "introduction.md",
+                    "checkpoints": [
+                        "Understanding Quantum Trader's purpose",
+                        "Review of key features",
+                        "Training program overview"
+                    ]
+                },
+                {
+                    "id": "system-setup",
+                    "title": "System Setup",
+                    "type": "tutorial",
+                    "content": "system-setup.md",
+                    "checkpoints": [
+                        "Install Python 3.10+",
+                        "Clone repository and install dependencies",
+                        "Configure TWS/Gateway"
+                    ]
+                },
+                {
+                    "id": "basic-ops",
+                    "title": "Basic Operations",
+                    "type": "tutorial",
+                    "content": "basic-ops.md",
+                    "checkpoints": [
+                        "Launch TWS/Gateway",
+                        "Start paper trading mode",
+                        "Monitor system output"
+                    ]
+                },
+                {
+                    "id": "trading-modes",
+                    "title": "Understanding Trading Modes",
+                    "type": "quiz",
+                    "content": "trading-modes-quiz.json"
+                },
+                {
+                    "id": "basic-risk",
+                    "title": "Introduction to Risk Management",
+                    "type": "tutorial",
+                    "content": "basic-risk.md",
+                    "checkpoints": [
+                        "Understanding position sizing",
+                        "Basic risk concepts",
+                        "Account risk management"
+                    ]
+                },
+                {
+                    "id": "basic-config",
+                    "title": "Basic Configuration",
+                    "type": "exercise",
+                    "content": "basic-config.json",
+                    "checkpoints": [
+                        "Configure basic position sizes",
+                        "Set simple risk limits",
+                        "Test basic configuration"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "level2",
+            "title": "Intermediate Usage (Trader - Advanced)",
+            "duration": "2-3 weeks",
+            "topics": [
+                {
+                    "id": "portfolio-concepts",
+                    "title": "Portfolio Management Concepts",
+                    "type": "tutorial",
+                    "content": "portfolio-concepts.md",
+                    "checkpoints": [
+                        "Understanding portfolio exposure",
+                        "Position correlation basics",
+                        "Portfolio diversification"
+                    ]
+                },
+                {
+                    "id": "risk-metrics",
+                    "title": "Understanding Risk Metrics",
+                    "type": "tutorial",
+                    "content": "risk-metrics.md",
+                    "checkpoints": [
+                        "Daily loss limits",
+                        "Maximum drawdown",
+                        "Value at Risk (VaR)"
+                    ]
+                },
+                {
+                    "id": "adv-config",
+                    "title": "Advanced Configuration",
+                    "type": "exercise",
+                    "content": "advanced-config.json",
+                    "checkpoints": [
+                        "Set position size limits based on your account size",
+                        "Configure daily loss limits",
+                        "Test configuration with paper trading"
+                    ]
+                },
+                {
+                    "id": "tech-analysis",
+                    "title": "Technical Analysis Integration",
+                    "type": "tutorial",
+                    "content": "technical-analysis.md",
+                    "checkpoints": [
+                        "Configure SMA periods (20, 50, 200)",
+                        "Set up MACD parameters",
+                        "Test indicator combinations"
+                    ]
+                },
+                {
+                    "id": "tech-analysis-quiz",
+                    "title": "Technical Analysis Assessment",
+                    "type": "quiz",
+                    "content": "technical-analysis-quiz.json",
+                    "checkpoints": [
+                        "Understanding technical indicators",
+                        "Interpreting indicator signals",
+                        "Combining multiple indicators"
+                    ]
+                },
+                {
+                    "id": "sentiment-setup",
+                    "title": "Sentiment Analysis Setup",
+                    "type": "tutorial",
+                    "content": "sentiment-setup.md",
+                    "checkpoints": [
+                        "Configure news API sources",
+                        "Set up social media monitoring",
+                        "Test sentiment analysis accuracy"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "level3",
+            "title": "Advanced Trading Strategies",
+            "duration": "3-4 weeks",
+            "topics": [
+                {
+                    "id": "portfolio-mgmt",
+                    "title": "Advanced Portfolio Management",
+                    "type": "tutorial",
+                    "content": "portfolio-management.md",
+                    "checkpoints": [
+                        "Advanced portfolio diversification rules",
+                        "Complex sector exposure limits",
+                        "Dynamic position sizing strategies"
+                    ]
+                },
+                {
+                    "id": "adv-algo",
+                    "title": "Advanced Trading Algorithms",
+                    "type": "exercise",
+                    "content": "algorithm-exercise.json",
+                    "checkpoints": [
+                        "Implement mean reversion strategy",
+                        "Add momentum indicators",
+                        "Backtest the strategy"
+                    ]
+                },
+                {
+                    "id": "risk-mgmt",
+                    "title": "Advanced Risk Management",
+                    "type": "tutorial",
+                    "content": "risk-management.md",
+                    "checkpoints": [
+                        "Implement position-level stop losses",
+                        "Set up portfolio-level risk monitoring",
+                        "Configure automated risk alerts"
+                    ]
+                }
+            ]
+        }
+    ]
+}

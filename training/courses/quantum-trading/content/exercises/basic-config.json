@@ -1,0 +1,53 @@
+{
+    "id": "basic-config",
+    "title": "Basic Risk Configuration Exercise",
+    "description": "Practice configuring basic risk management parameters for your trading system",
+    "instructions": [
+        "Using the concepts from the Basic Risk Management tutorial, configure the following parameters:",
+        "1. Set a maximum position size as a percentage of your account",
+        "2. Configure a risk percentage per trade",
+        "3. Set a daily loss limit as a percentage of your account"
+    ],
+    "template": "# Configure these basic risk parameters:\nrisk_management:\n  basic:\n    max_position_size_percent: ???  # Between 0.01 (1%) and 0.10 (10%)\n    risk_per_trade_percent: ???      # Between 0.005 (0.5%) and 0.02 (2%)\n    daily_loss_limit_percent: ???   # Between 0.02 (2%) and 0.05 (5%)",
+    "validation": {
+        "rules": {
+            "max_position_size_percent": {
+                "type": "number",
+                "min": 0.01,
+                "max": 0.10,
+                "description": "Maximum position size should be between 1% and 10% of account value"
+            },
+            "risk_per_trade_percent": {
+                "type": "number",
+                "min": 0.005,
+                "max": 0.02,
+                "description": "Risk per trade should be between 0.5% and 2% of account value"
+            },
+            "daily_loss_limit_percent": {
+                "type": "number",
+                "min": 0.02,
+                "max": 0.05,
+                "description": "Daily loss limit should be between 2% and 5% of account value"
+            }
+        },
+        "feedback": {
+            "success": "Great job! Your risk parameters are within reasonable ranges for beginning traders.",
+            "incomplete": "Please provide values for all parameters.",
+            "invalid_range": "One or more values are outside the recommended ranges for safe trading.",
+            "logical_error": "Check that your risk per trade is less than your position size, and daily loss limit is greater than position size.",
+            "hints": [
+                "Consider starting with conservative values",
+                "Risk per trade should be smaller than position size",
+                "Daily loss limit should account for multiple trades"
+            ]
+        }
+    },
+    "examples": {
+        "conservative": {
+            "max_position_size_percent": 0.05,
+            "risk_per_trade_percent": 0.01,
+            "daily_loss_limit_percent": 0.03
+        },
+        "explanation": "In this conservative example:\n- Maximum position is 5% of account\n- Risk per trade is 1% of account\n- Daily loss limit is 3% of account\n\nThis allows for multiple trades while maintaining safe risk levels."
+    }
+}

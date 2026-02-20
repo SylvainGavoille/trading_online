@@ -1,0 +1,103 @@
+{
+    "id": "technical-analysis-quiz",
+    "title": "Technical Analysis Understanding",
+    "description": "Test your knowledge of technical indicators and their application in trading",
+    "type": "quiz",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "multiple-choice",
+            "question": "Which of the following statements about RSI is correct?",
+            "options": [
+                "RSI values range from -100 to +100",
+                "RSI values range from 0 to 100",
+                "RSI values range from -1 to +1",
+                "RSI values have no fixed range"
+            ],
+            "correctAnswer": 1,
+            "explanation": "The Relative Strength Index (RSI) is scaled from 0 to 100, with values above 70 typically indicating overbought conditions and below 30 indicating oversold conditions."
+        },
+        {
+            "id": "q2",
+            "type": "multiple-choice",
+            "question": "In Bollinger Bands, the middle band is typically calculated as:",
+            "options": [
+                "An exponential moving average",
+                "A simple moving average",
+                "The median price",
+                "The VWAP"
+            ],
+            "correctAnswer": 1,
+            "explanation": "The middle band in Bollinger Bands is typically a Simple Moving Average (SMA), usually with a 20-period setting."
+        },
+        {
+            "id": "q3",
+            "type": "multiple-select",
+            "question": "Which of the following are components of the MACD indicator? (Select all that apply)",
+            "options": [
+                "Fast EMA",
+                "Slow EMA",
+                "Signal Line",
+                "Standard Deviation"
+            ],
+            "correctAnswers": [0, 1, 2],
+            "explanation": "MACD consists of three components: a fast EMA, a slow EMA (whose difference forms the MACD line), and a signal line (which is an EMA of the MACD line)."
+        },
+        {
+            "id": "q4",
+            "type": "true-false",
+            "question": "A Simple Moving Average (SMA) gives equal weight to all prices in its calculation period.",
+            "correctAnswer": true,
+            "explanation": "Unlike the Exponential Moving Average (EMA) which gives more weight to recent prices, the SMA calculates a straight arithmetic average, giving equal weight to all prices in the period."
+        },
+        {
+            "id": "q5",
+            "type": "multiple-choice",
+            "question": "What does it typically indicate when the current price moves above the upper Bollinger Band?",
+            "options": [
+                "The market is definitely going to reverse",
+                "The market is in a strong uptrend",
+                "The market is experiencing higher volatility",
+                "All of the above"
+            ],
+            "correctAnswer": 2,
+            "explanation": "When price moves outside the Bollinger Bands, it primarily indicates increased volatility. While this might suggest a strong trend or potential reversal, the bands themselves only measure volatility and deviation from the average."
+        },
+        {
+            "id": "q6",
+            "type": "multiple-select",
+            "question": "Which of the following are valid uses of technical indicators? (Select all that apply)",
+            "options": [
+                "Position sizing",
+                "Entry timing",
+                "Risk management",
+                "Predicting exact price targets"
+            ],
+            "correctAnswers": [0, 1, 2],
+            "explanation": "Technical indicators can be used for position sizing, entry timing, and risk management. However, they cannot reliably predict exact price targets as markets are influenced by many factors."
+        },
+        {
+            "id": "q7",
+            "type": "multiple-choice",
+            "question": "What is the primary difference between SMA and EMA?",
+            "options": [
+                "SMA uses closing prices while EMA uses high prices",
+                "SMA gives equal weight to all prices while EMA emphasizes recent prices",
+                "SMA is more accurate than EMA",
+                "EMA can only be used for short-term analysis"
+            ],
+            "correctAnswer": 1,
+            "explanation": "The main difference is that EMA gives more weight to recent prices, making it more responsive to recent price changes, while SMA gives equal weight to all prices in the calculation period."
+        },
+        {
+            "id": "q8",
+            "type": "true-false",
+            "question": "Technical indicators should always be used in isolation for making trading decisions.",
+            "correctAnswer": false,
+            "explanation": "Technical indicators should be used in combination with other indicators and analysis methods. Relying on a single indicator in isolation can lead to false signals and poor trading decisions."
+        }
+    ],
+    "passingScore": 75,
+    "maxAttempts": 3,
+    "timeLimit": 1800
+}

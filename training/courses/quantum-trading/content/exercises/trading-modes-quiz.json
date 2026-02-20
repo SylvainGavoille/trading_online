@@ -1,0 +1,76 @@
+{
+    "id": "trading-modes",
+    "title": "Understanding Trading Modes Quiz",
+    "description": "Test your understanding of different trading modes in Quantum Trader",
+    "questions": [
+        {
+            "id": "q1",
+            "question": "What is the main difference between paper trading and live trading?",
+            "options": [
+                {
+                    "id": "a",
+                    "text": "Paper trading uses real money"
+                },
+                {
+                    "id": "b",
+                    "text": "Live trading uses simulated money"
+                },
+                {
+                    "id": "c",
+                    "text": "Paper trading uses simulated money for practice"
+                }
+            ],
+            "correctAnswer": "c",
+            "feedback": {
+                "correct": "Correct! Paper trading allows you to practice without risking real money.",
+                "incorrect": "Incorrect. Paper trading is a simulation mode that uses virtual money for practice trading."
+            }
+        },
+        {
+            "id": "q2",
+            "question": "When should you switch from paper trading to live trading?",
+            "options": [
+                {
+                    "id": "a",
+                    "text": "Immediately after installation"
+                },
+                {
+                    "id": "b",
+                    "text": "After making one successful paper trade"
+                },
+                {
+                    "id": "c",
+                    "text": "After consistently profitable paper trading and thorough system testing"
+                }
+            ],
+            "correctAnswer": "c",
+            "feedback": {
+                "correct": "Correct! You should only switch to live trading after thorough testing and consistent paper trading success.",
+                "incorrect": "Incorrect. It's important to thoroughly test the system and demonstrate consistent success in paper trading first."
+            }
+        },
+        {
+            "id": "q3",
+            "question": "What is the recommended initial position size when switching to live trading?",
+            "options": [
+                {
+                    "id": "a",
+                    "text": "Same as paper trading"
+                },
+                {
+                    "id": "b",
+                    "text": "Start small and gradually increase"
+                },
+                {
+                    "id": "c",
+                    "text": "Maximum allowed by account"
+                }
+            ],
+            "correctAnswer": "b",
+            "feedback": {
+                "correct": "Correct! Starting with smaller positions and gradually increasing them is the safest approach.",
+                "incorrect": "Incorrect. It's best to start with smaller positions and increase them gradually as you gain confidence."
+            }
+        }
+    ]
+}
