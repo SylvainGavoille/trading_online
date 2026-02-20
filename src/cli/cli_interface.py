@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 import pandas as pd
 import time
-from src.trading.trading_agents import TradingSwarm
+from src.trading.trading_agents import TradingSystemDSPy
 from src.api.ib_connector import IBClient
 
 def setup_logging():
@@ -45,7 +45,7 @@ def check_ib_prerequisites():
     ]
     return prerequisites
 
-def initialize_components(config, logger):
+def initialize_components(config, logger, llm_provider='openai', model='gpt-4o-mini'):
     """Initialize trading system components with error handling"""
     try:
         # Check prerequisites
@@ -57,11 +57,11 @@ def initialize_components(config, logger):
         # Initialize IB connection
         logger.info("Attempting to connect to Interactive Brokers...")
         ib_client = IBClient(config)
-        
+
         # Try to connect with timeout
         connection_timeout = 10  # seconds
         connection_start = time.time()
-        
+
         if not ib_client.connect_and_run():
             logger.error("Failed to establish connection to Interactive Brokers")
             logger.error("Please ensure all prerequisites are met:")
@@ -72,11 +72,16 @@ def initialize_components(config, logger):
         connection_time = time.time() - connection_start
         logger.info(f"Successfully connected to Interactive Brokers (took {connection_time:.2f} seconds)")
 
-        # Initialize trading swarm
-        trading_swarm = TradingSwarm(config)
-        logger.info("Trading swarm initialized")
+        # Initialize trading system with DSPy
+        logger.info(f"Initializing DSPy Trading System with {llm_provider}/{model}...")
+        trading_system = TradingSystemDSPy(
+            config=config,
+            llm_provider=llm_provider,
+            model=model
+        )
+        logger.info("DSPy Trading System initialized")
 
-        return ib_client, trading_swarm
+        return ib_client, trading_system
 
     except Exception as e:
         logger.error(f"Failed to initialize components: {str(e)}")
@@ -127,12 +132,12 @@ def process_market_data(market_data, symbol, logger):
         logger.error(f"Error processing market data for {symbol}: {str(e)}")
         raise
 
-def start_trading_system(config, symbols, logger):
+def start_trading_system(config, symbols, logger, llm_provider='openai', model='gpt-4o-mini'):
     """Initialize and start the autonomous trading system"""
     ib_client = None
     try:
         # Initialize components
-        ib_client, trading_swarm = initialize_components(config, logger)
+        ib_client, trading_system = initialize_components(config, logger, llm_provider, model)
 
         logger.info(f"Starting autonomous trading for symbols: {symbols}")
         logger.info("System Configuration:")
@@ -166,19 +171,33 @@ def start_trading_system(config, symbols, logger):
                     if not pd.isna(df['low'].iloc[-1]):
                         logger.info(f"- Low: {df['low'].iloc[-1]:.2f}")
                     
-                    # Analyze trading opportunity
-                    result = trading_swarm.analyze_trading_opportunity(symbol, df)
-                    
+                    # Analyze trading opportunity with DSPy
+                    # Calculate technical indicators
+                    from src.analysis.technical_analysis import TechnicalAnalysis
+                    tech_analyzer = TechnicalAnalysis(df)
+
+                    indicators = {
+                        'rsi': tech_analyzer.rsi(period=14).iloc[-1] if not tech_analyzer.rsi(period=14).empty else None,
+                        'macd': (tech_analyzer.macd()[0].iloc[-1] - tech_analyzer.macd()[1].iloc[-1]) if not tech_analyzer.macd()[0].empty else None,
+                        'price': df['close'].iloc[-1],
+                        'sma_20': tech_analyzer.sma(period=20).iloc[-1] if not tech_analyzer.sma(period=20).empty else None,
+                    }
+
+                    # Run technical analysis with DSPy
+                    result = trading_system.analyze_technical(
+                        symbol=symbol,
+                        market_data=df,
+                        indicators=indicators
+                    )
+
                     # Log analysis result
-                    if result['status'] == 'executed':
-                        logger.info(f"Trade executed for {symbol}:")
-                        logger.info(f"- Price: {result['price']}")
-                        logger.info(f"- Size: {result['size']}")
-                        logger.info(f"- Timestamp: {result['timestamp']}")
-                    elif result['status'] == 'rejected':
-                        logger.info(f"Trade rejected for {symbol}: {result.get('reason', 'Unknown reason')}")
-                    elif result['status'] == 'error':
-                        logger.error(f"Error analyzing {symbol}: {result.get('reason', 'Unknown error')}")
+                    if result['status'] == 'success':
+                        logger.info(f"Analysis completed for {symbol}:")
+                        logger.info(f"- Signal: {result['signal']}")
+                        logger.info(f"- Confidence: {result['confidence']:.2%}")
+                        logger.info(f"- Reasoning: {result.get('reasoning', 'N/A')[:100]}...")
+                    else:
+                        logger.error(f"Error analyzing {symbol}: {result.get('error', 'Unknown error')}")
                     
                 except ValueError as ve:
                     logger.warning(f"Market data issue for {symbol}: {str(ve)}")
@@ -201,29 +220,35 @@ def start_trading_system(config, symbols, logger):
             logger.info("Disconnected successfully")
 
 def main():
-    parser = argparse.ArgumentParser(description="Autonomous Trading System CLI")
+    parser = argparse.ArgumentParser(description="Autonomous Trading System CLI - Multi-LLM with DSPy")
     parser.add_argument("--symbols", required=True, nargs='+',
                       help="List of symbols to trade (e.g., AAPL MSFT GOOGL)")
     parser.add_argument("--mode", choices=['live', 'paper'], default='paper',
                       help="Trading mode: 'live' or 'paper' trading")
-    
+    parser.add_argument("--llm", choices=['openai', 'anthropic', 'ollama'], default='openai',
+                      help="LLM provider to use (openai, anthropic, ollama)")
+    parser.add_argument("--model", default='gpt-4o-mini',
+                      help="Model to use (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022, llama3)")
+
     args = parser.parse_args()
-    
+
     # Setup
     logger = setup_logging()
     config = load_config()
-    
+
     # Update config based on mode
     config['trading_mode'] = args.mode
-    
+
     # Log startup information
-    logger.info("=== Quantum Trader Starting ===")
+    logger.info("=== Quantum Trader Starting (DSPy Multi-LLM) ===")
     logger.info(f"Mode: {args.mode}")
+    logger.info(f"LLM Provider: {args.llm}")
+    logger.info(f"Model: {args.model}")
     logger.info(f"Symbols: {args.symbols}")
     logger.info(f"Start Time: {datetime.now()}")
-    
+
     # Start the trading system
-    start_trading_system(config, args.symbols, logger)
+    start_trading_system(config, args.symbols, logger, args.llm, args.model)
 
 if __name__ == "__main__":
     main()
