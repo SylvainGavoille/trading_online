@@ -45,7 +45,7 @@ def check_ib_prerequisites():
     ]
     return prerequisites
 
-def initialize_components(config, logger, llm_provider='openai', model='gpt-4o-mini'):
+def initialize_components(config, logger, llm_provider='ollama', model='deepseek-r1:14b'):
     """Initialize trading system components with error handling"""
     try:
         # Check prerequisites
@@ -132,7 +132,7 @@ def process_market_data(market_data, symbol, logger):
         logger.error(f"Error processing market data for {symbol}: {str(e)}")
         raise
 
-def start_trading_system(config, symbols, logger, llm_provider='openai', model='gpt-4o-mini'):
+def start_trading_system(config, symbols, logger, llm_provider='ollama', model='deepseek-r1:14b'):
     """Initialize and start the autonomous trading system"""
     ib_client = None
     try:
@@ -225,10 +225,10 @@ def main():
                       help="List of symbols to trade (e.g., AAPL MSFT GOOGL)")
     parser.add_argument("--mode", choices=['live', 'paper'], default='paper',
                       help="Trading mode: 'live' or 'paper' trading")
-    parser.add_argument("--llm", choices=['openai', 'anthropic', 'ollama'], default='openai',
-                      help="LLM provider to use (openai, anthropic, ollama)")
-    parser.add_argument("--model", default='gpt-4o-mini',
-                      help="Model to use (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022, llama3)")
+    parser.add_argument("--llm", choices=['openai', 'anthropic', 'ollama'], default='ollama',
+                      help="LLM provider to use (default: ollama)")
+    parser.add_argument("--model", default='deepseek-r1:14b',
+                      help="Model to use (default: deepseek-r1:14b)")
 
     args = parser.parse_args()
 

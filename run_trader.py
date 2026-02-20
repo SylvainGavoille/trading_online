@@ -52,13 +52,13 @@ def main():
     parser.add_argument(
         '--llm',
         choices=['openai', 'anthropic', 'ollama'],
-        default='openai',
-        help='Provider LLM à utiliser'
+        default='ollama',
+        help='Provider LLM à utiliser (default: ollama)'
     )
     parser.add_argument(
         '--model',
-        default='gpt-4o-mini',
-        help='Modèle à utiliser (ex: gpt-4o-mini, claude-3-5-sonnet-20241022, llama3)'
+        default='deepseek-r1:14b',
+        help='Modèle à utiliser (default: deepseek-r1:14b)'
     )
     parser.add_argument(
         '--cycles',
