@@ -6,40 +6,37 @@ Système de trading algorithmique intelligent utilisant une architecture multi-a
 
 Ce projet intègre **Quantum Trader**, un système sophistiqué qui utilise plusieurs agents spécialisés pour analyser les marchés, gérer les risques et exécuter des trades automatiquement.
 
-## 🎯 Trois Versions Disponibles
+## 🎯 Deux Versions Disponibles
 
-### 1. **LITE** - 0$ en frais API ⚡ (Recommandée)
+### 1. **LITE** - 0$ en frais API ⚡
 - **Fichier** : `run_trader_lite.py`
 - **Technologie** : Python pur uniquement
 - **Coût** : **0$ en frais API**
 - **Performance** : 95% identique à la version FULL
 - **Usage** : Analyse technique complète sans agents LLM
+- **Idéal pour** : Développement, apprentissage, trading purement technique
 - 📖 [Guide détaillé LITE vs FULL](LITE_VS_FULL.md)
 
-### 2. **DSPy** - Multi-LLM flexible 🤖
-- **Fichier** : `run_trader_dspy.py`
+### 2. **FULL** - Multi-LLM avec DSPy 🤖 (Recommandée pour production)
+- **Fichier** : `run_trader.py`
 - **Technologie** : DSPy framework (multi-LLM)
 - **Coût** : Variable selon le provider
   - **Ollama (local)** : 0$ API
   - **OpenAI gpt-4o-mini** : ~$3-5/jour
   - **Anthropic Claude** : ~$2-24/jour
-- **Performance** : Optimisation automatique des prompts
+- **Performance** : Optimisation automatique des prompts, analyse de sentiment
 - **Support** : OpenAI, Anthropic, Ollama (modèles locaux)
-- 📖 [Guide DSPy complet](DSPY_GUIDE.md)
+- **Idéal pour** : Production, analyse complète (technique + sentiment)
+- 📖 [Guide Multi-LLM complet](MULTI_LLM_GUIDE.md)
 
-### 3. **FULL** - OpenAI Swarm (Original)
-- **Fichier** : `run_trader.py`
-- **Technologie** : OpenAI Swarm
-- **Coût** : ~$3-5/jour (OpenAI uniquement)
-- **Performance** : Version originale avec analyse de sentiment
-- **Support** : OpenAI seulement
-
-### Architecture Multi-Agents
+### Architecture Multi-Agents (Version FULL)
 
 1. **Agent d'Analyse Technique** - Indicateurs : SMA, EMA, RSI, MACD, Bollinger Bands
-2. **Agent d'Analyse de Sentiment** - Analyse des news et réseaux sociaux (FULL et DSPy uniquement)
+2. **Agent d'Analyse de Sentiment** - Analyse des news et réseaux sociaux (LLM)
 3. **Agent de Gestion des Risques** - Limites de position, stop-loss, ratio risk/reward
 4. **Agent d'Exécution** - Ordres market/limit, gestion du slippage
+
+**Powered by DSPy** : Support pour multiples LLMs (OpenAI, Anthropic, Ollama)
 
 ## Installation
 
@@ -62,19 +59,22 @@ uv sync
 
 ## 📊 Comparaison Rapide
 
-| Critère | LITE ⚡ | DSPy 🤖 | FULL (Swarm) |
-|---------|--------|---------|--------------|
-| **Coût API/jour** | **0$** | 0$ - 24$ | 3$ - 5$ |
-| **Clé API requise** | ❌ Non | ✅ Oui* | ✅ Oui (OpenAI) |
-| **LLM supportés** | Aucun | OpenAI, Anthropic, Ollama | OpenAI uniquement |
-| **Analyse technique** | ✅ Python pur | ✅ LLM + optimisation | ✅ LLM |
-| **Analyse sentiment** | ❌ Non | ✅ Oui | ✅ Oui |
-| **Performance** | 95% | 100%+ | 100% |
-| **Recommandé pour** | Débutants, développement | Production, flexibilité | Version originale |
+| Critère | LITE ⚡ | FULL (Multi-LLM) 🤖 |
+|---------|--------|---------------------|
+| **Coût API/jour** | **0$** | 0$ - 24$ (selon LLM) |
+| **Clé API requise** | ❌ Non | ✅ Oui* |
+| **LLM supportés** | Aucun | OpenAI, Anthropic, Ollama |
+| **Analyse technique** | ✅ Python pur | ✅ LLM + optimisation |
+| **Analyse sentiment** | ❌ Non | ✅ Oui |
+| **Optimisation auto** | ❌ Non | ✅ Oui (DSPy) |
+| **Performance** | 95% | 100%+ |
+| **Recommandé pour** | Développement, apprentissage | Production, analyse complète |
 
-\* *Sauf avec Ollama (modèles locaux gratuits)*
+\* *Sauf avec Ollama (modèles locaux gratuits) = 0$*
 
-**Recommandation** : Commencez avec **LITE** (0$ de coût) pour apprendre, puis testez **DSPy avec Ollama** (également 0$) si vous voulez l'analyse de sentiment.
+**Recommandation** :
+- **Développement** : LITE (0$ de coût) ou FULL avec Ollama (0$ de coût)
+- **Production** : FULL avec OpenAI gpt-4o-mini (~$3-5/jour) ou Claude (~$2-24/jour)
 
 ## Utilisation
 
@@ -92,7 +92,7 @@ uv run diagnose_connection.py
 
 ### 3. Lancer le système Quantum Trader
 
-#### Version LITE (Recommandée - 0$ API) ⚡
+#### Version LITE (0$ API) ⚡
 
 ```bash
 # Mode paper trading
@@ -104,46 +104,41 @@ uv run python run_trader_lite.py --symbols AAPL --mode live
 
 **Avantages** : Aucune clé API requise, 0$ de coût, 95% des performances
 
-#### Version DSPy (Multi-LLM) 🤖
+#### Version FULL - Multi-LLM (Recommandée pour production) 🤖
 
 ```bash
-# Avec OpenAI (comme Swarm)
+# Option 1: Avec OpenAI
 export OPENAI_API_KEY=sk-...
-uv run python run_trader_dspy.py --symbols AAPL --llm openai --model gpt-4o-mini --mode paper
+uv run python run_trader.py --symbols AAPL MSFT --llm openai --model gpt-4o-mini --mode paper
 
-# Avec Anthropic Claude
+# Option 2: Avec Anthropic Claude
 export ANTHROPIC_API_KEY=sk-ant-...
-uv run python run_trader_dspy.py --symbols AAPL --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
+uv run python run_trader.py --symbols AAPL --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
 
-# Avec Ollama (modèle local - 0$ API)
-uv run python run_trader_dspy.py --symbols AAPL --llm ollama --model llama3 --mode paper
-```
-
-**Avantages** : Choix du provider, optimisation automatique, compilation pour réduire les coûts
-
-#### Version FULL (OpenAI Swarm - Original)
-
-```bash
-# Configurer la clé API OpenAI d'abord
-export OPENAI_API_KEY=sk-...
-
-# Mode paper trading
-uv run python run_trader.py --symbols AAPL MSFT GOOGL --mode paper
+# Option 3: Avec Ollama (modèle local - 0$ API)
+uv run python run_trader.py --symbols AAPL --llm ollama --model llama3 --mode paper
 
 # Mode live trading (ATTENTION : trades réels !)
-uv run python run_trader.py --symbols AAPL --mode live
+uv run python run_trader.py --symbols AAPL --llm openai --model gpt-4o-mini --mode live
 ```
 
-**Avantages** : Analyse de sentiment, version originale testée
+**Avantages** :
+- Choix du provider LLM (OpenAI, Anthropic, Ollama)
+- Optimisation automatique des prompts (DSPy)
+- Analyse de sentiment (news + social media)
+- Compilation pour réduire les coûts
+- Fine-tuning possible
 
-### 4. Configuration de la clé API (FULL et DSPy uniquement)
+### 4. Configuration de la clé API (Version FULL uniquement)
 
-📖 [Guide de configuration OpenAI](SETUP_API_KEY.md)
+📖 [Guide de configuration API](SETUP_API_KEY.md)
 
 ```bash
 # Tester votre clé OpenAI
 uv run python test_openai_key.py
 ```
+
+**Note** : La version LITE ne nécessite aucune clé API.
 
 ### 5. Programme de formation
 
@@ -190,8 +185,8 @@ trading_online/
 ### Guides de Démarrage
 
 - 📖 **[LITE vs FULL - Comparaison des versions](LITE_VS_FULL.md)** - Choisir la bonne version
-- 📖 **[Guide DSPy](DSPY_GUIDE.md)** - Migration de Swarm vers DSPy, multi-LLM
-- 📖 **[Configuration API OpenAI](SETUP_API_KEY.md)** - Setup clés API pour FULL et DSPy
+- 📖 **[Guide Multi-LLM](MULTI_LLM_GUIDE.md)** - Utilisation avec OpenAI, Anthropic, Ollama
+- 📖 **[Configuration API](SETUP_API_KEY.md)** - Setup clés API pour version FULL
 - 📖 **[Index de la documentation complète](docs/INDEX_DOCS.md)** - Toute la documentation
 
 ### Documentation Technique Détaillée
@@ -227,8 +222,7 @@ uv run python -m unittest discover tests
 
 ### Par version :
 - **LITE** : Aucune dépendance LLM (Python pur)
-- **DSPy** : `dspy-ai` - Framework multi-LLM (OpenAI, Anthropic, Ollama)
-- **FULL** : `swarm` - Framework multi-agents OpenAI uniquement
+- **FULL** : `dspy-ai` - Framework multi-LLM (OpenAI, Anthropic, Ollama)
 
 ## Sécurité
 

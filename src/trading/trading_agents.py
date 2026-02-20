@@ -1,307 +1,383 @@
+"""
+Trading Agents - Multi-LLM Support via DSPy
+Supports: OpenAI, Anthropic, Ollama (local models), and more
+"""
 import logging
 from typing import Dict, Any, Optional
 import pandas as pd
-import numpy as np
+import dspy
 from datetime import datetime
-import json
-from swarm import Swarm, Agent
 
-class TradingSwarm:
-    """
-    Coordinates multiple trading agents to analyze market opportunities and execute trades
-    """
-    
-    def __init__(self, config: dict):
+
+# ===== Signatures DSPy =====
+
+class TechnicalAnalysis(dspy.Signature):
+    """Analyse technique des données de marché"""
+    market_data: str = dspy.InputField(desc="Données OHLCV et indicateurs calculés")
+    indicators: str = dspy.InputField(desc="RSI, MACD, Bollinger Bands, SMA, EMA")
+
+    signal: str = dspy.OutputField(desc="Signal: BUY, SELL, ou NEUTRAL")
+    confidence: float = dspy.OutputField(desc="Confiance entre 0.0 et 1.0")
+    reasoning: str = dspy.OutputField(desc="Explication de la décision")
+
+
+class SentimentAnalysis(dspy.Signature):
+    """Analyse du sentiment de marché"""
+    symbol: str = dspy.InputField(desc="Symbole de l'action")
+    news_data: str = dspy.InputField(desc="Articles de presse récents")
+    social_data: str = dspy.InputField(desc="Données des réseaux sociaux")
+
+    sentiment: str = dspy.OutputField(desc="Sentiment: BULLISH, BEARISH, ou NEUTRAL")
+    confidence: float = dspy.OutputField(desc="Confiance entre 0.0 et 1.0")
+    key_factors: str = dspy.OutputField(desc="Facteurs clés influençant le sentiment")
+
+
+class RiskValidation(dspy.Signature):
+    """Validation des risques d'un trade"""
+    trade_params: str = dspy.InputField(desc="Paramètres du trade proposé")
+    portfolio: str = dspy.InputField(desc="État actuel du portfolio")
+    risk_limits: str = dspy.InputField(desc="Limites de risque configurées")
+
+    approved: bool = dspy.OutputField(desc="Trade approuvé: true ou false")
+    risk_score: float = dspy.OutputField(desc="Score de risque entre 0.0 et 1.0")
+    reason: str = dspy.OutputField(desc="Raison de l'approbation ou du rejet")
+
+
+# ===== Modules DSPy =====
+
+class TechnicalAgent(dspy.Module):
+    """Agent d'analyse technique utilisant DSPy"""
+
+    def __init__(self):
+        super().__init__()
+        self.analyze = dspy.ChainOfThought(TechnicalAnalysis)
+
+    def forward(self, market_data: str, indicators: str):
         """
-        Initialize trading swarm with configuration
-        
+        Analyse les données techniques
+
         Args:
-            config: Trading configuration dictionary
+            market_data: Données OHLCV
+            indicators: Indicateurs calculés
+
+        Returns:
+            Prédiction DSPy avec signal, confiance, raisonnement
+        """
+        return self.analyze(market_data=market_data, indicators=indicators)
+
+
+class SentimentAgent(dspy.Module):
+    """Agent d'analyse de sentiment utilisant DSPy"""
+
+    def __init__(self):
+        super().__init__()
+        self.analyze = dspy.ChainOfThought(SentimentAnalysis)
+
+    def forward(self, symbol: str, news_data: str, social_data: str):
+        """
+        Analyse le sentiment du marché
+
+        Args:
+            symbol: Symbole de l'action
+            news_data: Nouvelles récentes
+            social_data: Données sociales
+
+        Returns:
+            Prédiction DSPy avec sentiment, confiance, facteurs
+        """
+        return self.analyze(symbol=symbol, news_data=news_data, social_data=social_data)
+
+
+class RiskAgent(dspy.Module):
+    """Agent de validation des risques utilisant DSPy"""
+
+    def __init__(self):
+        super().__init__()
+        self.validate = dspy.ChainOfThought(RiskValidation)
+
+    def forward(self, trade_params: str, portfolio: str, risk_limits: str):
+        """
+        Valide les risques d'un trade
+
+        Args:
+            trade_params: Paramètres du trade
+            portfolio: Portfolio actuel
+            risk_limits: Limites de risque
+
+        Returns:
+            Prédiction DSPy avec approbation, score risque, raison
+        """
+        return self.validate(
+            trade_params=trade_params,
+            portfolio=portfolio,
+            risk_limits=risk_limits
+        )
+
+
+# ===== Trading System avec DSPy =====
+
+class TradingSystemDSPy:
+    """
+    Système de trading utilisant DSPy au lieu de Swarm
+
+    Avantages DSPy vs Swarm:
+    - Support multi-LLM (OpenAI, Anthropic, local models)
+    - Optimisation automatique des prompts
+    - Compilation et fine-tuning
+    - Meilleure gestion des coûts
+    """
+
+    def __init__(self, config: dict, llm_provider: str = "openai", model: str = "gpt-4o-mini"):
+        """
+        Initialise le système de trading DSPy
+
+        Args:
+            config: Configuration du système
+            llm_provider: Provider LLM (openai, anthropic, local, etc.)
+            model: Modèle à utiliser
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.client = Swarm()
-        
-        # Initialize agents
-        self.technical_agent = self._initialize_agent("technical")
-        self.sentiment_agent = self._initialize_agent("sentiment")
-        self.risk_agent = self._initialize_agent("risk")
-        self.execution_agent = self._initialize_agent("execution")
-        
-    def _initialize_agent(self, agent_type: str) -> Agent:
-        """Initialize a specific type of agent"""
-        agent_configs = {
-            'technical': Agent(
-                name="Technical Analysis Agent",
-                instructions="""You are a technical analysis expert. Analyze market data using:
-                - Moving averages (SMA, EMA)
-                - Momentum indicators (RSI, MACD)
-                - Volatility indicators (Bollinger Bands)
-                - Volume analysis
-                Provide clear trading signals based on technical patterns."""
-            ),
-            'sentiment': Agent(
-                name="Sentiment Analysis Agent",
-                instructions="""You are a sentiment analysis expert. Analyze market sentiment using:
-                - News articles
-                - Social media trends
-                - Market commentary
-                Provide clear sentiment signals based on qualitative data."""
-            ),
-            'risk': Agent(
-                name="Risk Management Agent",
-                instructions="""You are a risk management expert. Monitor and control:
-                - Position sizes
-                - Portfolio exposure
-                - Stop loss levels
-                - Risk/reward ratios
-                Ensure all trades comply with risk parameters."""
-            ),
-            'execution': Agent(
-                name="Trade Execution Agent",
-                instructions="""You are a trade execution expert. Handle:
-                - Order placement
-                - Position management
-                - Trade timing
-                Execute trades efficiently while minimizing slippage."""
+
+        # Configurer DSPy avec le LLM
+        self._configure_llm(llm_provider, model)
+
+        # Initialiser les agents DSPy
+        self.technical_agent = TechnicalAgent()
+        self.sentiment_agent = SentimentAgent()
+        self.risk_agent = RiskAgent()
+
+        self.logger.info(f"Trading System DSPy initialized with {llm_provider}/{model}")
+
+    def _configure_llm(self, provider: str, model: str):
+        """
+        Configure le LLM pour DSPy
+
+        Args:
+            provider: Provider (openai, anthropic, etc.)
+            model: Nom du modèle
+        """
+        if provider == "openai":
+            lm = dspy.LM(model=f'openai/{model}')
+        elif provider == "anthropic":
+            lm = dspy.LM(model=f'anthropic/{model}')
+        elif provider == "ollama":
+            # Pour modèles locaux via Ollama
+            lm = dspy.LM(model=f'ollama/{model}')
+        else:
+            # Par défaut OpenAI
+            lm = dspy.LM(model=f'openai/{model}')
+
+        dspy.configure(lm=lm)
+        self.logger.info(f"DSPy configured with {provider}/{model}")
+
+    def analyze_technical(self, symbol: str, market_data: pd.DataFrame,
+                         indicators: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyse technique d'un symbole
+
+        Args:
+            symbol: Symbole de l'action
+            market_data: DataFrame avec OHLCV
+            indicators: Indicateurs calculés (RSI, MACD, etc.)
+
+        Returns:
+            Résultat de l'analyse avec signal et confiance
+        """
+        try:
+            # Préparer les données pour le LLM
+            market_summary = self._format_market_data(market_data)
+            indicators_summary = self._format_indicators(indicators)
+
+            # Appeler l'agent technique DSPy
+            result = self.technical_agent(
+                market_data=market_summary,
+                indicators=indicators_summary
             )
-        }
-        
-        return agent_configs[agent_type]
 
-    def _calculate_rsi(self, data) -> Optional[float]:
-        """
-        Calculate RSI (Relative Strength Index)
-        
-        Args:
-            data: DataFrame or dict with price data
-            
-        Returns:
-            RSI value or None if calculation fails
-        """
-        try:
-            # Convert dict to DataFrame if needed
-            if isinstance(data, dict):
-                if not data.get('close'):
-                    return None
-                df = pd.DataFrame(data)
-            elif isinstance(data, pd.DataFrame):
-                if 'close' not in data.columns:
-                    return None
-                df = data
-            else:
-                return None
-            
-            # Need at least 3 data points for meaningful RSI
-            if len(df) < 3:
-                return None
-                
-            # Calculate price changes
-            delta = df['close'].diff()
-            
-            # Handle constant prices
-            if (delta == 0).all():
-                return 50.0  # Neutral RSI for constant prices
-            
-            # Separate gains and losses
-            gains = delta.copy()
-            losses = delta.copy()
-            gains[gains < 0] = 0
-            losses[losses > 0] = 0
-            losses = abs(losses)
-            
-            # Calculate average gains and losses
-            avg_gain = gains.mean()
-            avg_loss = losses.mean()
-            
-            if avg_loss == 0:
-                if avg_gain == 0:
-                    return 50.0  # Neutral RSI when no price changes
-                return 100.0  # All gains
-            
-            rs = avg_gain / avg_loss
-            rsi = 100 - (100 / (1 + rs))
-            
-            return float(rsi)
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating RSI: {str(e)}")
-            return None
-
-    def _fetch_news_sentiment(self, symbol: str) -> float:
-        """Fetch and analyze news sentiment"""
-        # Default implementation returns neutral sentiment
-        return 0.5
-
-    def _fetch_social_sentiment(self, symbol: str) -> float:
-        """Fetch and analyze social media sentiment"""
-        # Default implementation returns neutral sentiment
-        return 0.5
-
-    def _aggregate_sentiment(self) -> float:
-        """Aggregate different sentiment sources"""
-        # Default implementation returns neutral sentiment
-        return 0.5
-
-    def _parse_agent_response(self, response) -> dict:
-        """
-        Parse agent response into a structured format
-        
-        Args:
-            response: Agent response object
-            
-        Returns:
-            Parsed response as dictionary
-        """
-        if not response or not hasattr(response, 'messages') or not response.messages:
-            return {}
-            
-        content = response.messages[0].get('content')
-        if not content:
-            return {}
-            
-        # If content is already a dict, return it
-        if isinstance(content, dict):
-            return content
-            
-        try:
-            # Try to parse as JSON
-            return json.loads(content)
-        except json.JSONDecodeError:
-            # If not valid JSON, return as processed message
             return {
-                "status": "processed",
-                "message": content
+                'symbol': symbol,
+                'signal': result.signal,
+                'confidence': float(result.confidence),
+                'reasoning': result.reasoning,
+                'status': 'success'
             }
 
-    def _check_risk_approval(self, risk_response: dict) -> bool:
-        """
-        Check if trade is approved by risk management
-        
-        Args:
-            risk_response: Risk analysis response
-            
-        Returns:
-            True if trade is approved, False otherwise
-        """
-        if not isinstance(risk_response, dict):
-            return False
-            
-        # Handle nested content structure
-        if 'content' in risk_response:
-            risk_response = risk_response['content']
-            
-        # Check approval status
-        if not risk_response.get('approved', False):
-            return False
-            
-        # Validate risk parameters
-        risk_params = risk_response.get('risk_parameters', {})
-        required_checks = [
-            'position_size_check',
-            'portfolio_exposure_check',
-            'stop_loss_level_check',
-            'risk_reward_ratio_check'
-        ]
-        
-        return all(risk_params.get(check) == 'Valid' for check in required_checks)
+        except Exception as e:
+            self.logger.error(f"Error in technical analysis for {symbol}: {e}")
+            return {
+                'symbol': symbol,
+                'signal': 'NEUTRAL',
+                'confidence': 0.0,
+                'status': 'error',
+                'error': str(e)
+            }
 
-    def _check_daily_loss_limit(self) -> bool:
-        """Check if daily loss limit has been reached"""
-        # Default implementation always returns True
-        return True
-
-    def analyze_trading_opportunity(self, symbol: str, market_data: Any) -> Dict[str, Any]:
+    def analyze_sentiment(self, symbol: str, news_data: Optional[list] = None,
+                         social_data: Optional[list] = None) -> Dict[str, Any]:
         """
-        Analyze trading opportunity using all agents
-        
+        Analyse de sentiment pour un symbole
+
         Args:
-            symbol: Trading symbol
-            market_data: Market data for analysis
-            
+            symbol: Symbole de l'action
+            news_data: Liste d'articles de presse
+            social_data: Données des réseaux sociaux
+
         Returns:
-            Analysis results including execution status
+            Résultat de l'analyse avec sentiment et confiance
         """
         try:
-            # Validate market data
-            if not isinstance(market_data, (pd.DataFrame, dict)):
-                return {
-                    "status": "error",
-                    "reason": f"Invalid market data type: {type(market_data).__name__}"
-                }
-                
-            if isinstance(market_data, dict) and not market_data.get('close'):
-                return {
-                    "status": "error",
-                    "reason": "No price data available"
-                }
-                
-            # Get technical analysis
-            technical_message = [{
-                "role": "user",
-                "content": f"Analyze technical indicators for {symbol}"
-            }]
-            technical_response = self.client.run(agent=self.technical_agent, messages=technical_message)
-            technical_data = self._parse_agent_response(technical_response)
-            
-            if "error" in technical_data:
-                return {
-                    "status": "error",
-                    "reason": f"Technical analysis error: {technical_data['error']}"
-                }
-                
-            # Get sentiment analysis
-            sentiment_message = [{
-                "role": "user",
-                "content": f"Analyze market sentiment for {symbol}"
-            }]
-            sentiment_response = self.client.run(agent=self.sentiment_agent, messages=sentiment_message)
-            sentiment_data = self._parse_agent_response(sentiment_response)
-            
-            # Prepare trade parameters
-            trade_params = {
-                "symbol": symbol,
-                "price": market_data['close'][-1] if isinstance(market_data, dict) else market_data['close'].iloc[-1],
-                "timestamp": datetime.now().strftime("%Y-%m-%d")
-            }
-            
-            # Get risk analysis
-            risk_message = [{
-                "role": "user",
-                "content": {
-                    "symbol": symbol,
-                    "trade": trade_params,
-                    "technical": technical_data,
-                    "sentiment": sentiment_data
-                }
-            }]
-            risk_response = self.client.run(agent=self.risk_agent, messages=risk_message)
-            risk_data = self._parse_agent_response(risk_response)
-            
-            # Check risk approval
-            if not self._check_risk_approval(risk_data):
-                return {
-                    "status": "rejected",
-                    "reason": risk_data.get('reason', 'Risk checks failed'),
-                    "risk_parameters": risk_data.get('risk_parameters', {})
-                }
-                
-            # Execute trade if approved
-            execution_message = [{
-                "role": "user",
-                "content": {
-                    "action": "execute",
-                    "trade": trade_params
-                }
-            }]
-            execution_response = self.client.run(agent=self.execution_agent, messages=execution_message)
-            execution_data = self._parse_agent_response(execution_response)
-            
-            return execution_data
-            
-        except Exception as e:
-            self.logger.exception(f"Error analyzing trading opportunity: {str(e)}")
+            # Formater les données
+            news_summary = self._format_news(news_data) if news_data else "No recent news"
+            social_summary = self._format_social(social_data) if social_data else "No social data"
+
+            # Appeler l'agent de sentiment DSPy
+            result = self.sentiment_agent(
+                symbol=symbol,
+                news_data=news_summary,
+                social_data=social_summary
+            )
+
             return {
-                "status": "error",
-                "reason": str(e)
+                'symbol': symbol,
+                'sentiment': result.sentiment,
+                'confidence': float(result.confidence),
+                'key_factors': result.key_factors,
+                'status': 'success'
             }
+
+        except Exception as e:
+            self.logger.error(f"Error in sentiment analysis for {symbol}: {e}")
+            return {
+                'symbol': symbol,
+                'sentiment': 'NEUTRAL',
+                'confidence': 0.0,
+                'status': 'error',
+                'error': str(e)
+            }
+
+    def validate_risk(self, trade_params: Dict[str, Any],
+                     portfolio: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Valide les risques d'un trade
+
+        Args:
+            trade_params: Paramètres du trade proposé
+            portfolio: État actuel du portfolio
+
+        Returns:
+            Résultat de la validation avec approbation et raison
+        """
+        try:
+            # Formater les données
+            trade_summary = self._format_trade_params(trade_params)
+            portfolio_summary = self._format_portfolio(portfolio)
+            risk_limits = self._format_risk_limits()
+
+            # Appeler l'agent de risque DSPy
+            result = self.risk_agent(
+                trade_params=trade_summary,
+                portfolio=portfolio_summary,
+                risk_limits=risk_limits
+            )
+
+            return {
+                'approved': bool(result.approved),
+                'risk_score': float(result.risk_score),
+                'reason': result.reason,
+                'status': 'success'
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in risk validation: {e}")
+            return {
+                'approved': False,
+                'risk_score': 1.0,
+                'reason': f"Error: {str(e)}",
+                'status': 'error'
+            }
+
+    # ===== Méthodes de formatage =====
+
+    def _format_market_data(self, df: pd.DataFrame) -> str:
+        """Formate les données de marché pour le LLM"""
+        if df.empty or len(df) < 5:
+            return "Insufficient data"
+
+        recent = df.tail(5)
+        return f"""
+Recent market data (last 5 periods):
+- Open: {recent['open'].tolist()}
+- High: {recent['high'].tolist()}
+- Low: {recent['low'].tolist()}
+- Close: {recent['close'].tolist()}
+- Volume: {recent['volume'].tolist()}
+
+Current price: ${recent['close'].iloc[-1]:.2f}
+Price change: ${recent['close'].iloc[-1] - recent['close'].iloc[0]:.2f}
+        """
+
+    def _format_indicators(self, indicators: Dict[str, Any]) -> str:
+        """Formate les indicateurs techniques"""
+        return f"""
+Technical Indicators:
+- RSI (14): {indicators.get('rsi', 'N/A')}
+- MACD: {indicators.get('macd', 'N/A')}
+- SMA 20: ${indicators.get('sma_20', 'N/A')}
+- Bollinger Upper: ${indicators.get('bb_upper', 'N/A')}
+- Bollinger Lower: ${indicators.get('bb_lower', 'N/A')}
+- Current Price: ${indicators.get('price', 'N/A')}
+        """
+
+    def _format_news(self, news_data: list) -> str:
+        """Formate les nouvelles"""
+        if not news_data:
+            return "No recent news available"
+
+        summaries = [f"- {item.get('title', 'N/A')}: {item.get('summary', 'N/A')}"
+                    for item in news_data[:5]]
+        return "\n".join(summaries)
+
+    def _format_social(self, social_data: list) -> str:
+        """Formate les données sociales"""
+        if not social_data:
+            return "No social media data available"
+
+        summaries = [f"- {item.get('platform', 'Unknown')}: {item.get('text', 'N/A')}"
+                    for item in social_data[:5]]
+        return "\n".join(summaries)
+
+    def _format_trade_params(self, params: Dict[str, Any]) -> str:
+        """Formate les paramètres du trade"""
+        return f"""
+Trade Parameters:
+- Symbol: {params.get('symbol', 'N/A')}
+- Action: {params.get('action', 'N/A')}
+- Quantity: {params.get('quantity', 'N/A')} shares
+- Price: ${params.get('price', 'N/A')}
+- Stop Loss: ${params.get('stop_loss', 'N/A')}
+- Take Profit: ${params.get('take_profit', 'N/A')}
+- Risk: ${params.get('quantity', 0) * abs(params.get('price', 0) - params.get('stop_loss', 0))}
+        """
+
+    def _format_portfolio(self, portfolio: Dict[str, Any]) -> str:
+        """Formate l'état du portfolio"""
+        return f"""
+Portfolio Status:
+- Total Value: ${portfolio.get('total_value', 'N/A')}
+- Cash: ${portfolio.get('cash', 'N/A')}
+- Positions: {len(portfolio.get('positions', []))}
+- Current Exposure: {portfolio.get('exposure_percent', 'N/A')}%
+        """
+
+    def _format_risk_limits(self) -> str:
+        """Formate les limites de risque"""
+        risk_config = self.config.get('risk_management', {})
+        return f"""
+Risk Limits:
+- Max Position Size: {risk_config.get('position_limits', {}).get('max_position_size', 'N/A')} shares
+- Max Portfolio Exposure: {risk_config.get('position_limits', {}).get('max_portfolio_exposure', 'N/A') * 100}%
+- Daily Loss Limit: ${risk_config.get('loss_limits', {}).get('daily_loss_limit', 'N/A')}
+- Max Drawdown: {risk_config.get('loss_limits', {}).get('max_drawdown', 'N/A') * 100}%
+- Min Risk/Reward: {risk_config.get('risk_reward', {}).get('min_ratio', 'N/A')}:1
+        """

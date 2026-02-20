@@ -1,59 +1,33 @@
-# Guide DSPy pour Quantum Trader
+# Guide Multi-LLM pour Quantum Trader
 
-## 🔄 Pourquoi Remplacer Swarm par DSPy ?
+## 🚀 Quantum Trader avec DSPy Framework
 
-### Limitations de Swarm
+Quantum Trader utilise **DSPy**, un framework puissant qui permet d'utiliser **n'importe quel LLM** (OpenAI, Anthropic, Ollama, etc.) avec optimisation automatique des prompts.
 
-❌ **Swarm (OpenAI uniquement)**
-- Seulement compatible OpenAI
-- Pas d'optimisation automatique des prompts
-- Pas de compilation/fine-tuning
-- Coûts fixes (pas d'options économiques)
+### ✅ Avantages du système DSPy
 
-### Avantages de DSPy
-
-✅ **DSPy (Multi-LLM)**
 - ✅ Support **OpenAI, Anthropic, local models** (Ollama, etc.)
 - ✅ **Optimisation automatique** des prompts
 - ✅ **Compilation** pour réduire les coûts
 - ✅ **Fine-tuning** pour améliorer les performances
-- ✅ **Structuration** meilleure du code
-- ✅ **Debugging** plus facile
+- ✅ **Structuration** meilleure du code avec Signatures et Modules
+- ✅ **Debugging** plus facile avec traçage intégré
+- ✅ **Type checking** avec Pydantic
 
-## 📊 Comparaison
+## 📊 Fonctionnalités DSPy
 
-| Fonctionnalité | Swarm | DSPy |
-|----------------|-------|------|
-| **LLMs supportés** | OpenAI uniquement | OpenAI, Anthropic, Ollama, etc. |
-| **Optimisation prompts** | Manuelle | Automatique |
-| **Compilation** | Non | Oui |
-| **Fine-tuning** | Non | Oui |
-| **Coût** | Fixe (GPT-4o/mini) | Flexible (peut utiliser modèles locaux) |
-| **Structuration** | Agents | Signatures + Modules |
-| **Type checking** | Non | Oui (Pydantic) |
+| Fonctionnalité | Description | Avantage |
+|----------------|-------------|----------|
+| **Multi-LLM** | OpenAI, Anthropic, Ollama, etc. | Flexibilité totale |
+| **Optimisation auto** | Bootstrap few-shot learning | Meilleure performance |
+| **Compilation** | Distillation de modèles | Réduction des coûts |
+| **Fine-tuning** | Training sur vos données | Performance maximale |
+| **Signatures** | Input/Output typés | Code plus robuste |
+| **Modules** | Composants réutilisables | Architecture propre |
 
 ## 🏗️ Architecture DSPy
 
-### Swarm Architecture (Ancienne)
-
-```python
-# Swarm - Simple mais limité
-from swarm import Swarm, Agent
-
-client = Swarm()
-
-technical_agent = Agent(
-    name="Technical Analysis",
-    instructions="Analyze market data..."
-)
-
-response = client.run(
-    agent=technical_agent,
-    messages=[{"role": "user", "content": "Analyze AAPL"}]
-)
-```
-
-### DSPy Architecture (Nouvelle)
+Le système utilise l'architecture DSPy avec **Signatures** et **Modules** :
 
 ```python
 # DSPy - Structuré et optimisable
@@ -91,7 +65,7 @@ result = agent(market_data="...", indicators="...")
 export OPENAI_API_KEY=sk-...
 
 # Lancer avec OpenAI
-uv run python run_trader_dspy.py \
+uv run python run_trader.py \
   --symbols AAPL MSFT \
   --llm openai \
   --model gpt-4o-mini \
@@ -107,7 +81,7 @@ uv run python run_trader_dspy.py \
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Lancer avec Claude
-uv run python run_trader_dspy.py \
+uv run python run_trader.py \
   --symbols AAPL MSFT \
   --llm anthropic \
   --model claude-3-5-sonnet-20241022 \
@@ -126,7 +100,7 @@ uv run python run_trader_dspy.py \
 ollama pull llama3
 
 # Lancer avec modèle local
-uv run python run_trader_dspy.py \
+uv run python run_trader.py \
   --symbols AAPL MSFT \
   --llm ollama \
   --model llama3 \
@@ -342,7 +316,7 @@ class TechnicalAgent(dspy.Module):
 uv run python run_trader.py --symbols AAPL --mode paper
 
 # Nouveau (DSPy)
-uv run python run_trader_dspy.py --symbols AAPL --mode paper --llm openai --model gpt-4o-mini
+uv run python run_trader.py --symbols AAPL --mode paper --llm openai --model gpt-4o-mini
 ```
 
 ## 🎯 Use Cases
@@ -351,7 +325,7 @@ uv run python run_trader_dspy.py --symbols AAPL --mode paper --llm openai --mode
 
 ```bash
 # Utiliser Ollama (gratuit) pendant le développement
-uv run python run_trader_dspy.py \
+uv run python run_trader.py \
   --symbols AAPL \
   --llm ollama \
   --model llama3 \
@@ -367,7 +341,7 @@ uv run python run_trader_dspy.py \
 # Meilleure qualité avec Claude en production
 export ANTHROPIC_API_KEY=sk-ant-...
 
-uv run python run_trader_dspy.py \
+uv run python run_trader.py \
   --symbols AAPL MSFT GOOGL \
   --llm anthropic \
   --model claude-3-5-sonnet-20241022 \
@@ -407,7 +381,7 @@ R : Oui, voire meilleures grâce à l'optimisation automatique.
 R : Llama 3 (8B) via Ollama - 0$ et performances correctes.
 
 **Q : Dois-je réécrire tout le code ?**
-R : Non, les deux versions coexistent. `run_trader_dspy.py` est la nouvelle version.
+R : Non, les deux versions coexistent. `run_trader.py` est la nouvelle version.
 
 ---
 
@@ -415,10 +389,10 @@ R : Non, les deux versions coexistent. `run_trader_dspy.py` est la nouvelle vers
 
 ```bash
 # Développement (gratuit)
-uv run python run_trader_dspy.py --symbols AAPL --llm ollama --model llama3 --mode paper
+uv run python run_trader.py --symbols AAPL --llm ollama --model llama3 --mode paper
 
 # Production (meilleure qualité)
-uv run python run_trader_dspy.py --symbols AAPL MSFT --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
+uv run python run_trader.py --symbols AAPL MSFT --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
 ```
 
 **DSPy = Plus flexible, moins cher, meilleures performances !** 🎉

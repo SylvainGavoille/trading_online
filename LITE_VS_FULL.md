@@ -24,9 +24,12 @@
 
 **Fichier** : `run_trader.py`
 
-**Technologie** : Python + OpenAI Swarm (agents LLM)
+**Technologie** : Python + DSPy (framework multi-LLM)
 
-**Coût** : **~$3-5/jour** en frais API OpenAI
+**Coût** : Variable selon le LLM
+- **Ollama (local)** : **0$ API**
+- **OpenAI gpt-4o-mini** : **~$3-5/jour**
+- **Anthropic Claude** : **~$2-24/jour**
 
 **Fonctionnalités** :
 - ✅ Analyse technique complète
@@ -35,22 +38,28 @@
 - ✅ Gestion stop-loss/take-profit
 - ✅ Analyse de sentiment (news/social media) avec LLM
 - ✅ Coordination multi-agents
+- ✅ Support multi-LLM (OpenAI, Anthropic, Ollama)
+- ✅ Optimisation automatique des prompts
 
-**Clé API OpenAI** : ✅ **REQUISE**
+**Clé API** : ✅ **REQUISE** (sauf Ollama = 0$ API)
 
 ## 📊 Tableau Comparatif
 
 | Fonctionnalité | LITE | FULL |
 |----------------|------|------|
-| **Analyse Technique** | ✅ Python pur | ✅ Python pur + Agent |
+| **Analyse Technique** | ✅ Python pur | ✅ Python pur + Agent LLM |
 | **RSI, MACD, Bollinger** | ✅ Calculés | ✅ Calculés |
-| **Validation Risques** | ✅ Python pur | ✅ Python pur + Agent |
-| **Exécution Trades** | ✅ Python pur | ✅ Python pur + Agent |
+| **Validation Risques** | ✅ Python pur | ✅ Python pur + Agent LLM |
+| **Exécution Trades** | ✅ Python pur | ✅ Python pur + Agent LLM |
 | **Analyse Sentiment** | ❌ Non | ✅ LLM (news + social) |
-| **Coordination Multi-Agents** | ❌ Non | ✅ OpenAI Swarm |
-| **Clé API OpenAI** | ❌ Pas nécessaire | ✅ Requise |
-| **Coût API/jour** | **$0** | **~$3-5** |
-| **Performances Trading** | 95% identique | 100% + sentiment |
+| **Framework** | ❌ Aucun | ✅ DSPy (multi-LLM) |
+| **LLM Supportés** | ❌ Aucun | ✅ OpenAI, Anthropic, Ollama |
+| **Optimisation auto** | ❌ Non | ✅ Oui (DSPy) |
+| **Clé API requise** | ❌ Non | ✅ Oui* |
+| **Coût API/jour** | **$0** | **0$ - 24$** (selon LLM) |
+| **Performances Trading** | 95% | 100% + sentiment |
+
+\* *Sauf Ollama (modèles locaux) = 0$*
 
 ## 💰 Analyse des Coûts
 
@@ -65,8 +74,19 @@ Coûts par jour (8h trading) :
 Total : $0 (paper) ou frais IB uniquement (live)
 ```
 
-### Version FULL
+### Version FULL (selon LLM choisi)
 
+**Option 1 : Ollama (local)**
+```
+Coûts par jour (8h trading) :
+- API LLM : $0 (modèle local)
+- IB Paper Trading : $0
+- IB Live Trading : Frais de commissions IB
+
+Total : $0 (paper) ou frais IB uniquement (live)
+```
+
+**Option 2 : OpenAI gpt-4o-mini**
 ```
 Coûts par jour (8h trading) :
 - API OpenAI (gpt-4o-mini) : ~$3.60
@@ -76,9 +96,21 @@ Coûts par jour (8h trading) :
 Total : ~$3.60 (paper) ou ~$3.60 + frais IB (live)
 ```
 
+**Option 3 : Anthropic Claude**
+```
+Coûts par jour (8h trading) :
+- API Anthropic (claude-3-5-sonnet) : ~$24
+- IB Paper Trading : $0
+- IB Live Trading : Frais de commissions IB
+
+Total : ~$24 (paper) ou ~$24 + frais IB (live)
+```
+
 **Par mois (20 jours de trading)** :
 - LITE : **$0**
-- FULL : **~$72** en API OpenAI
+- FULL avec Ollama : **$0** en API
+- FULL avec OpenAI : **~$72** en API
+- FULL avec Claude : **~$480** en API
 
 ## 🎯 Quelle Version Choisir ?
 
@@ -96,8 +128,13 @@ Total : ~$3.60 (paper) ou ~$3.60 + frais IB (live)
 
 ✅ Vous voulez l'analyse de sentiment (news + social media)
 ✅ Vous tradez sur événements (earnings, annonces)
-✅ Vous avez une clé API OpenAI et budget pour ~$72/mois
-✅ Vous voulez la coordination multi-agents
+✅ Vous voulez la coordination multi-agents avec LLM
+✅ Vous voulez l'optimisation automatique des prompts (DSPy)
+
+**Options LLM disponibles** :
+- **Ollama (local)** : 0$ API - Parfait pour tester sans frais
+- **OpenAI gpt-4o-mini** : ~$72/mois - Bon équilibre coût/performance
+- **Anthropic Claude** : ~$480/mois - Meilleure qualité
 
 **Exemple** : Trader sur des annonces d'entreprise ou événements macro
 
@@ -117,11 +154,26 @@ uv run python run_trader_lite.py \
   --cycles 10
 ```
 
-### Lancer Version FULL (requiert OpenAI)
+### Lancer Version FULL (Multi-LLM)
 
+**Option 1 : Avec Ollama (0$ API)**
 ```bash
-# Nécessite OPENAI_API_KEY configurée
-uv run python run_trader.py --symbols AAPL MSFT GOOGL --mode paper
+# Pas de clé API requise !
+uv run python run_trader.py --symbols AAPL MSFT --llm ollama --model llama3 --mode paper
+```
+
+**Option 2 : Avec OpenAI**
+```bash
+# Configure OPENAI_API_KEY
+export OPENAI_API_KEY=sk-...
+uv run python run_trader.py --symbols AAPL MSFT --llm openai --model gpt-4o-mini --mode paper
+```
+
+**Option 3 : Avec Anthropic Claude**
+```bash
+# Configure ANTHROPIC_API_KEY
+export ANTHROPIC_API_KEY=sk-ant-...
+uv run python run_trader.py --symbols AAPL MSFT --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
 ```
 
 ## 🔬 Différences Techniques
@@ -144,25 +196,26 @@ Flux :
 Coût : 0$ API
 ```
 
-### FULL : Architecture Multi-Agents
+### FULL : Architecture Multi-Agents DSPy
 
 ```python
-TradingSwarm
-├── OpenAI Swarm Client
-├── Technical Agent (LLM)
-├── Sentiment Agent (LLM)
-├── Risk Agent (LLM)
-└── Execution Agent (LLM)
+TradingSystemDSPy
+├── DSPy Framework (multi-LLM)
+├── Technical Agent (DSPy Module)
+├── Sentiment Agent (DSPy Module)
+├── Risk Agent (DSPy Module)
+└── Execution Agent (DSPy Module)
 
 Flux :
 1. Récupérer données → Python
-2. Agent Technique → LLM ($)
-3. Agent Sentiment → LLM ($)
-4. Combiner signaux → LLM ($)
-5. Agent Risque → LLM ($)
-6. Agent Exécution → LLM ($)
+2. Agent Technique → LLM (DSPy)
+3. Agent Sentiment → LLM (DSPy)
+4. Combiner signaux → LLM (DSPy)
+5. Agent Risque → LLM (DSPy)
+6. Agent Exécution → LLM (DSPy)
 
-Coût : ~$3-5/jour
+LLM supportés : OpenAI, Anthropic, Ollama
+Coût : 0$ (Ollama) à 24$/jour (Claude)
 ```
 
 ## 📈 Performances Comparées
@@ -219,21 +272,39 @@ uv run python run_trader_lite.py \
 # [OK] Coût API: $0
 ```
 
-### Test FULL (avec API)
+### Test FULL (Multi-LLM)
 
+**Option 1 : Test avec Ollama (0$ API)**
 ```bash
-# Configurer OPENAI_API_KEY d'abord
-export OPENAI_API_KEY=sk-...
-
-# 1 cycle de test
+# Aucune clé API requise
 uv run python run_trader.py \
   --symbols AAPL \
+  --llm ollama \
+  --model llama3 \
   --mode paper \
   --cycles 1
 
 # Devrait afficher :
+# [OK] DSPy configuré avec ollama/llama3
 # [OK] Agent Technique activé
-# [OK] Agent Sentiment activé
+# [OK] Coût API: $0
+```
+
+**Option 2 : Test avec OpenAI**
+```bash
+# Configurer OPENAI_API_KEY d'abord
+export OPENAI_API_KEY=sk-...
+
+uv run python run_trader.py \
+  --symbols AAPL \
+  --llm openai \
+  --model gpt-4o-mini \
+  --mode paper \
+  --cycles 1
+
+# Devrait afficher :
+# [OK] DSPy configuré avec openai/gpt-4o-mini
+# [OK] Agent Technique activé
 # [OK] Coût API: ~$0.05 pour 1 cycle
 ```
 
@@ -249,9 +320,10 @@ uv run python run_trader.py \
 ### Phase 2 : Optimisation (1-2 mois)
 
 → **Testez FULL** (1 semaine)
-- Comparer les performances
+- Commencez avec Ollama (0$ API) pour tester sans risque
+- Comparer les performances LITE vs FULL
 - Voir si le sentiment apporte de la valeur
-- Mesurer le ROI de l'API
+- Si positif, tester OpenAI/Claude et mesurer le ROI
 
 ### Phase 3 : Production
 
@@ -261,8 +333,22 @@ uv run python run_trader.py \
 
 ## 🔄 Passer de LITE à FULL
 
-### Étape 1 : Configurer OpenAI
+### Option 1 : Commencer avec Ollama (0$ API)
 
+```bash
+# Installer Ollama
+# https://ollama.ai
+
+# Télécharger un modèle
+ollama pull llama3
+
+# Lancer FULL sans API
+uv run python run_trader.py --symbols AAPL --llm ollama --model llama3 --mode paper
+```
+
+### Option 2 : Utiliser OpenAI
+
+**Étape 1 : Configurer OpenAI**
 ```bash
 # Créer .env
 cp .env.example .env
@@ -271,22 +357,33 @@ cp .env.example .env
 echo "OPENAI_API_KEY=sk-your-key" >> .env
 ```
 
-### Étape 2 : Tester la clé
-
+**Étape 2 : Tester la clé**
 ```bash
 uv run python test_openai_key.py
 ```
 
-### Étape 3 : Lancer FULL
+**Étape 3 : Lancer FULL**
+```bash
+uv run python run_trader.py --symbols AAPL --llm openai --model gpt-4o-mini --mode paper
+```
+
+### Option 3 : Utiliser Anthropic Claude
 
 ```bash
-uv run python run_trader.py --symbols AAPL --mode paper
+# Configurer ANTHROPIC_API_KEY
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Lancer FULL
+uv run python run_trader.py --symbols AAPL --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
 ```
 
 ## ❓ FAQ
 
 **Q : LITE est-il aussi performant que FULL ?**
-R : Oui, à 95%. Le sentiment ajoute 5-10% de performance mais coûte $72/mois.
+R : Oui, à 95%. Le sentiment ajoute 5-10% de performance.
+
+**Q : Puis-je utiliser FULL sans frais API ?**
+R : Oui ! Utilisez FULL avec Ollama (modèles locaux) pour 0$ API.
 
 **Q : Puis-je mélanger les deux ?**
 R : Oui ! Utilisez LITE en semaine et FULL pour les annonces importantes.
@@ -294,8 +391,14 @@ R : Oui ! Utilisez LITE en semaine et FULL pour les annonces importantes.
 **Q : LITE peut-il trader en live ?**
 R : Oui, absolument ! Même performance que FULL pour l'analyse technique.
 
-**Q : Combien économise LITE ?**
-R : ~$72/mois en frais API OpenAI (basé sur 20 jours de trading).
+**Q : Quel LLM choisir pour FULL ?**
+R :
+- Développement/test : Ollama (0$)
+- Production économique : OpenAI gpt-4o-mini (~$72/mois)
+- Production qualité max : Anthropic Claude (~$480/mois)
+
+**Q : Puis-je changer de LLM facilement ?**
+R : Oui ! DSPy permet de changer de LLM en modifiant simplement les paramètres --llm et --model.
 
 ---
 
