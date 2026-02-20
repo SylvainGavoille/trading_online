@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, UTC, timedelta
 from collections import defaultdict
+from src.trading.fee_calculator import FeeCalculator
 
 class RiskValidator:
     """Handles validation of trading risks and compliance"""
@@ -9,17 +10,20 @@ class RiskValidator:
     def __init__(self, config: dict):
         """
         Initialize risk validator with configuration
-        
+
         Args:
             config: Trading configuration dictionary
         """
         self.config = config
         self.risk_config = config['risk_management']
         self.logger = logging.getLogger(__name__)
-        
+
+        # Initialize fee calculator
+        self.fee_calculator = FeeCalculator(config)
+
         # Initialize trade frequency tracking
         self.trade_history = defaultdict(list)
-        
+
         # Validate configuration
         if not self._validate_config():
             raise ValueError("Invalid risk management configuration")
@@ -223,29 +227,52 @@ class RiskValidator:
         }
     
     def _check_risk_reward_ratio(self, trade_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate risk/reward ratio"""
+        """Validate risk/reward ratio (including fees)"""
         current_price = trade_params['price']
         stop_loss = trade_params['stop_loss']
         target_price = trade_params['target_price']
         position_size = trade_params['size']
-        
-        potential_loss = (current_price - stop_loss) * position_size
-        potential_reward = (target_price - current_price) * position_size
-        
-        if potential_loss <= 0:
+
+        # Calculate gross profit/loss (before fees)
+        potential_loss_gross = (current_price - stop_loss) * position_size
+        potential_reward_gross = (target_price - current_price) * position_size
+
+        if potential_loss_gross <= 0:
             return {
                 'approved': False,
                 'reason': 'Invalid stop loss level'
             }
-            
-        risk_reward_ratio = potential_reward / potential_loss
+
+        # Calculate fees for round trip
+        fees = self.fee_calculator.calculate_round_trip_fees(
+            position_size,
+            current_price,
+            target_price
+        )
+        total_fees = fees['total_round_trip_fees']
+
+        # Net profit/loss (after fees)
+        potential_loss_net = potential_loss_gross + total_fees
+        potential_reward_net = potential_reward_gross - total_fees
+
+        # Risk/reward ratio (net)
+        risk_reward_ratio_net = potential_reward_net / potential_loss_net
         min_ratio = self.risk_config.get('risk_reward', {}).get('min_ratio', 2.0)
-        
-        if risk_reward_ratio >= min_ratio:
+
+        self.logger.debug(
+            f"Risk/Reward - Gross: {potential_reward_gross / potential_loss_gross:.2f}, "
+            f"Net (after fees): {risk_reward_ratio_net:.2f}, "
+            f"Fees: ${total_fees:.2f}"
+        )
+
+        if risk_reward_ratio_net >= min_ratio:
             return {'approved': True}
         return {
             'approved': False,
-            'reason': f'Risk/reward ratio {risk_reward_ratio:.2f} is below minimum threshold of {min_ratio}'
+            'reason': (
+                f'Risk/reward ratio {risk_reward_ratio_net:.2f} (after ${total_fees:.2f} fees) '
+                f'is below minimum threshold of {min_ratio}'
+            )
         }
     
     def _check_daily_loss_limit(self, portfolio: Dict[str, Any]) -> Dict[str, Any]:

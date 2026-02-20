@@ -75,6 +75,15 @@ agent_system:
     sentiment: 0.3
   handoff_timeout: 30  # seconds to wait for agent handoffs
 
+# Fee Configuration (IBKR)
+fees:
+  ibkr_plan: "pro"  # Options: "pro", "lite", "tiered"
+  per_share_rate: 0.005  # $0.005 per share (IBKR Pro)
+  min_commission: 1.00  # Minimum $1.00 per order
+  max_commission_pct: 0.01  # Maximum 1% of trade value
+  sec_fee_rate: 0.0000278  # SEC fee: $27.80 per $1M (sells only)
+  finra_taf_rate: 0.000166  # FINRA TAF: $0.166 per 1000 shares (sells only)
+
 # Monitoring Configuration
 monitoring:
   log_level: "INFO"

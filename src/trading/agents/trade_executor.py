@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, UTC
 from collections import defaultdict
 from src.api.ib_connector import IBClient
+from src.trading.fee_calculator import FeeCalculator
 
 class OrderState:
     """Tracks the state of an order"""
@@ -39,6 +40,9 @@ class TradeExecutor:
 
         # Get slippage tolerance from config
         self.slippage_tolerance = self.config.get('execution', {}).get('slippage_tolerance', 0.001)
+
+        # Initialize fee calculator
+        self.fee_calculator = FeeCalculator(self.config) if self.config else None
     
     def execute_trade(self, trade_params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -101,6 +105,9 @@ class TradeExecutor:
             # Update order relationships
             self._link_orders(main_order['order_id'], [stop_order['order_id'], target_order['order_id']])
             
+            # Calculate fees
+            fee_info = self._calculate_trade_fees(trade_params, main_order)
+
             execution_result = {
                 'status': 'executed',
                 'timestamp': datetime.now(UTC).isoformat(),
@@ -109,10 +116,15 @@ class TradeExecutor:
                     'stop_loss': stop_order,
                     'take_profit': target_order
                 },
-                'trade_params': trade_params
+                'trade_params': trade_params,
+                'fees': fee_info
             }
-            
-            self.logger.info(f"Trade executed successfully: {execution_result}")
+
+            self.logger.info(
+                f"Trade executed successfully: {trade_params['symbol']} "
+                f"{trade_params['size']} @ ${main_order['filled_price']:.2f} "
+                f"| Fees: ${fee_info['entry_fees']:.2f}"
+            )
             return execution_result
             
         except Exception as e:
@@ -384,3 +396,55 @@ class TradeExecutor:
             return False
 
         return True
+
+    def _calculate_trade_fees(self, trade_params: Dict[str, Any],
+                             order_result: Dict[str, Any]) -> Dict[str, float]:
+        """
+        Calculate fees for executed trade
+
+        Args:
+            trade_params: Trade parameters
+            order_result: Order execution result
+
+        Returns:
+            Dictionary with fee information
+        """
+        if not self.fee_calculator:
+            return {'entry_fees': 0.0, 'estimated_exit_fees': 0.0, 'estimated_total_fees': 0.0}
+
+        quantity = trade_params['size']
+        entry_price = order_result.get('filled_price', trade_params['price'])
+        exit_price = trade_params.get('target_price', entry_price)
+
+        # Calculate entry fees (buy)
+        entry_fees_detail = self.fee_calculator.calculate_total_fees(
+            quantity, entry_price, 'buy'
+        )
+
+        # Estimate exit fees (sell)
+        exit_fees_detail = self.fee_calculator.calculate_total_fees(
+            quantity, exit_price, 'sell'
+        )
+
+        # Calculate expected P&L including fees
+        pnl_detail = self.fee_calculator.calculate_net_pnl(
+            quantity, entry_price, exit_price
+        )
+
+        result = {
+            'entry_fees': entry_fees_detail['total_fees'],
+            'estimated_exit_fees': exit_fees_detail['total_fees'],
+            'estimated_total_fees': pnl_detail['total_fees'],
+            'commission_breakdown': {
+                'entry_commission': entry_fees_detail['commission'],
+                'exit_commission': exit_fees_detail['commission']
+            },
+            'regulatory_breakdown': {
+                'sec_fee': exit_fees_detail['sec_fee'],
+                'finra_taf': exit_fees_detail['finra_taf']
+            },
+            'expected_net_pnl': pnl_detail['net_pnl'],
+            'fee_impact_pct': pnl_detail.get('fee_impact_pct', 0)
+        }
+
+        return result
