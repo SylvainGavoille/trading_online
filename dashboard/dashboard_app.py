@@ -243,6 +243,24 @@ def get_stock_data(symbol: str, days: int) -> Optional[pd.DataFrame]:
         return df
     return None
 
+
+@st.cache_data(ttl=3600)
+def get_parquet_symbols() -> set:
+    """Retourne l'ensemble des symboles disponibles dans le store Parquet (lecture du dernier jour disponible)."""
+    for offset in range(7):
+        day = get_last_trading_date() - timedelta(days=offset)
+        day_dir = os.path.join(
+            PARQUET_ROOT,
+            f"year={day.year}",
+            f"month={day.month:02}",
+            f"day={day.isoformat()}",
+        )
+        if os.path.isdir(day_dir):
+            symbols = {f[:-8] for f in os.listdir(day_dir) if f.endswith('.parquet')}
+            if symbols:
+                return symbols
+    return set()
+
 def calculate_statistics(df: pd.DataFrame) -> Dict:
     """
     Calcule les statistiques sur les données de prix
@@ -470,6 +488,11 @@ def main():
                         if use_ai_search and not dspy_ready:
                             st.warning("⚠️ Ollama not available — fell back to Yahoo Finance search.")
 
+                    # Filter to symbols available in the Parquet store
+                    if stocks:
+                        parquet_syms = get_parquet_symbols()
+                        stocks = [s for s in stocks if s['symbol'] in parquet_syms]
+
                     # Persist results in session state so selections survive reruns
                     if stocks:
                         st.session_state['search_stocks'] = stocks
@@ -477,7 +500,7 @@ def main():
                     else:
                         st.session_state['search_stocks'] = []
                         st.session_state['search_explanation'] = ''
-                        st.warning(f"No instruments found for '{user_query}'")
+                        st.warning(f"No instruments found for '{user_query}' in the local Parquet database.")
                         st.info("💡 Try keywords like: tech, finance, ETF, bitcoin, energy, dividends...")
                 else:
                     st.warning("⚠️ Please enter a search query")
