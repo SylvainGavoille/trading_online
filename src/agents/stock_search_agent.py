@@ -120,18 +120,27 @@ class StockSearchAgent(dspy.Module):
         Returns:
             Resultat DSPy avec selected_stocks et explanation
         """
-        # Pre-recherche SQLite pour constituer la liste de candidats
-        raw_results = search_by_keywords(user_query, max_results=30)
+        words = _query_words(user_query)
+
+        # Large fetch SQLite
+        raw_results = search_by_keywords(user_query, max_results=500)
+
+        # Garder uniquement les resultats dont la description contient un mot de la requete
+        if words:
+            raw_results = [r for r in raw_results if _matches_query_words(r, words)]
 
         # Filtrer aux symboles ayant des donnees Parquet
         if parquet_symbols:
             raw_results = [r for r in raw_results if r['symbol'] in parquet_symbols]
 
+        # Limiter le contexte LLM a 50 candidats (eviter de depasser la fenetre)
+        candidates = raw_results[:50]
+
         # Formater la liste de candidats pour le contexte LLM
-        if raw_results:
+        if candidates:
             lines = [
                 f"{r['symbol']}|{r['name']}|{r.get('type', '')}"
-                for r in raw_results
+                for r in candidates
             ]
             available_str = "\n".join(lines)
         else:
@@ -174,6 +183,33 @@ def parse_stock_suggestions(selected_stocks_text: str) -> List[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Helpers de filtrage
+# ---------------------------------------------------------------------------
+
+def _query_words(query: str) -> list[str]:
+    """Retourne les mots significatifs (>=2 chars) de la requete, en minuscules."""
+    return [w.lower() for w in query.split() if len(w) >= 2]
+
+
+def _matches_query_words(result: dict, words: list[str]) -> bool:
+    """
+    Retourne True si au moins un mot de la requete apparait dans les champs
+    textuels du resultat (symbol, name, description, sector, industry, type).
+    """
+    if not words:
+        return True
+    text = ' '.join(filter(None, [
+        result.get('symbol', ''),
+        result.get('name', ''),
+        result.get('description', ''),
+        result.get('sector', ''),
+        result.get('industry', ''),
+        result.get('type', ''),
+    ])).lower()
+    return any(word in text for word in words)
+
+
+# ---------------------------------------------------------------------------
 # Fallback sans LLM
 # ---------------------------------------------------------------------------
 
@@ -186,22 +222,33 @@ def simple_stock_search(
     """
     Recherche sans LLM via la base SQLite locale.
 
+    Retourne TOUS les resultats dont la description contient au moins un mot
+    de la requete (pas de cap artificiel). max_results n'est utilise que comme
+    hint pour le fetch SQLite initial.
+
     Args:
         query          : Requete de recherche
-        max_results    : Nombre maximum de resultats
+        max_results    : Hint pour le fetch SQLite (la liste finale peut depasser)
         fast_mode      : Ignore (conserve pour compatibilite de l'interface)
         parquet_symbols: Si fourni, filtre les resultats aux symboles ayant des donnees Parquet.
 
     Returns:
         (liste de stocks, explication)
     """
-    results = search_by_keywords(query, max_results * 3 if parquet_symbols else max_results)
+    words = _query_words(query)
 
-    # Filtrer aux symboles avec donnees Parquet, puis retronquer
+    # Large fetch pour ne pas rater de correspondances
+    raw = search_by_keywords(query, max_results=500)
+
+    # Garder uniquement les resultats dont la description contient un mot de la requete
+    if words:
+        raw = [r for r in raw if _matches_query_words(r, words)]
+
+    # Filtrer aux symboles avec donnees Parquet
     if parquet_symbols:
-        results = [r for r in results if r['symbol'] in parquet_symbols][:max_results]
+        raw = [r for r in raw if r['symbol'] in parquet_symbols]
 
-    if not results:
+    if not raw:
         return [], f"Aucun instrument trouve pour '{query}'"
 
     stocks = [
@@ -215,7 +262,7 @@ def simple_stock_search(
             'exchange':    s.get('exchange'),
             'market_cap':  s.get('market_cap'),
         }
-        for s in results
+        for s in raw
     ]
 
     sectors = {s['sector'] for s in stocks if s.get('sector') and s['sector'] != 'N/A'}
