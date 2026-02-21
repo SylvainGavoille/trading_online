@@ -201,13 +201,14 @@ def _row_to_instrument(row: dict) -> Instrument:
 # Recherche SQLite
 # ---------------------------------------------------------------------------
 
-def _search_sqlite(query: str, max_results: int = 40) -> List[dict]:
+def _search_sqlite(query: str, max_results: Optional[int] = 40) -> List[dict]:
     """
     Recherche dans ibkr_us.sqlite :
       1. ibkr_verification (symboles vérifiés, métadonnées complètes)
       2. us_symbols_raw    (couverture étendue, moins de métadonnées)
 
     Supporte les requêtes multi-mots : chaque mot est cherché indépendamment (OR).
+    max_results=None : aucune limite (retourne tous les résultats correspondants).
 
     Returns:
         Liste de dicts bruts avec les colonnes de la DB.
@@ -240,6 +241,8 @@ def _search_sqlite(query: str, max_results: int = 40) -> List[dict]:
             like = f"%{w}%"
             v_params.extend([like, like, like, like])
 
+        limit_clause = f"LIMIT {int(max_results)}" if max_results is not None else ""
+
         # --- Table ibkr_verification (vérifiés + métadonnées complètes) ---
         cur.execute(
             f"""
@@ -263,9 +266,9 @@ def _search_sqlite(query: str, max_results: int = 40) -> List[dict]:
                     ELSE 2
                 END,
                 v.symbol
-            LIMIT ?
+            {limit_clause}
             """,
-            v_params + [q_upper, q_start, max_results],
+            v_params + [q_upper, q_start],
         )
         verified_rows = [dict(r) for r in cur.fetchall()]
         verified_syms = {r['symbol'] for r in verified_rows}
@@ -302,9 +305,9 @@ def _search_sqlite(query: str, max_results: int = 40) -> List[dict]:
                     ELSE 2
                 END,
                 r.symbol
-            LIMIT ?
+            {limit_clause}
             """,
-            r_params + [q_upper, q_start, max_results],
+            r_params + [q_upper, q_start],
         )
         raw_rows = [dict(r) for r in cur.fetchall() if r['symbol'] not in verified_syms]
 
@@ -378,13 +381,13 @@ def fetch_instrument(symbol: str, use_cache: bool = True) -> Optional[Instrument
     return instrument
 
 
-def search_by_keywords(query: str, max_results: int = 20, fast_mode: bool = False) -> List[dict]:
+def search_by_keywords(query: str, max_results: Optional[int] = 20, fast_mode: bool = False) -> List[dict]:
     """
     Recherche dynamique d'instruments financiers dans la base SQLite locale.
 
     Args:
         query:       Requête libre ('AAPL', 'nasdaq 100', 'healthcare', 'ETF tech'…)
-        max_results: Nombre maximum de résultats
+        max_results: Nombre maximum de résultats. None = pas de limite.
         fast_mode:   Ignoré (conservé pour compatibilité de l'interface)
 
     Returns:
@@ -395,7 +398,8 @@ def search_by_keywords(query: str, max_results: int = 20, fast_mode: bool = Fals
         return search_cache[cache_key]
 
     query_lower = query.lower().strip()
-    raw_rows = _search_sqlite(query, max_results=max_results * 2)
+    sql_limit = max_results * 2 if max_results is not None else None
+    raw_rows = _search_sqlite(query, max_results=sql_limit)
 
     results: List[dict] = []
     seen: set = set()
@@ -412,7 +416,7 @@ def search_by_keywords(query: str, max_results: int = 20, fast_mode: bool = Fals
         results.append(res)
 
     results.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
-    final = results[:max_results]
+    final = results if max_results is None else results[:max_results]
     search_cache[cache_key] = final
     return final
 

@@ -122,8 +122,8 @@ class StockSearchAgent(dspy.Module):
         """
         words = _query_words(user_query)
 
-        # Large fetch SQLite
-        raw_results = search_by_keywords(user_query, max_results=500)
+        # Aucune limite — retourne tous les résultats correspondants
+        raw_results = search_by_keywords(user_query, max_results=None)
 
         # Garder uniquement les resultats dont la description contient un mot de la requete
         if words:
@@ -237,8 +237,8 @@ def simple_stock_search(
     """
     words = _query_words(query)
 
-    # Large fetch pour ne pas rater de correspondances
-    raw = search_by_keywords(query, max_results=500)
+    # Aucune limite — retourne tous les résultats correspondants
+    raw = search_by_keywords(query, max_results=None)
 
     # Garder uniquement les resultats dont la description contient un mot de la requete
     if words:
