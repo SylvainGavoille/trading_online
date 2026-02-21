@@ -465,7 +465,7 @@ def main():
     # Tabs dans le sidebar
     tab_selection = st.sidebar.radio(
         "Menu",
-        ["🔍 Exploration", "⚙️ Configuration", "📚 Documentation"],
+        ["🔍 Exploration", "📊 Portfolio", "⚙️ Configuration", "📚 Documentation"],
         index=0
     )
 
@@ -735,6 +735,125 @@ def main():
             # Raw data table (optional)
             with st.expander("📋 View Raw Data"):
                 st.dataframe(df, use_container_width=True)
+
+    # ==================== TAB: PORTFOLIO ====================
+    elif tab_selection == "📊 Portfolio":
+        st.header("📊 My Portfolio")
+
+        ib_client = get_ib_client()
+
+        if ib_client is None or not ib_client.isConnected():
+            st.error("❌ IBKR not connected — start TWS or IB Gateway to see your portfolio.")
+            st.info("Launch TWS or IB Gateway on port 7497 (paper) or 7496 (live), then restart the dashboard.")
+        else:
+            st.success("✅ Connected to IBKR", icon="📡")
+
+            if st.button("🔄 Refresh Portfolio", type="primary"):
+                st.session_state.pop('portfolio_account', None)
+                st.session_state.pop('portfolio_positions', None)
+
+            # Load data once per session (or after refresh)
+            if 'portfolio_account' not in st.session_state:
+                with st.spinner("Loading account summary..."):
+                    st.session_state['portfolio_account'] = ib_client.get_account_summary(timeout=10.0)
+
+            if 'portfolio_positions' not in st.session_state:
+                with st.spinner("Loading positions..."):
+                    st.session_state['portfolio_positions'] = ib_client.get_account_positions(timeout=10.0)
+
+            account   = st.session_state['portfolio_account']
+            positions = st.session_state['portfolio_positions']
+
+            # ---- Account Summary ----
+            if account:
+                st.subheader("💰 Account Summary")
+
+                def _fmt_usd(v):
+                    return f"${v:,.2f}" if isinstance(v, (int, float)) else "—"
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("Net Liquidation",
+                              _fmt_usd(account.get('NetLiquidation')))
+                with c2:
+                    cash = account.get('TotalCashValue', account.get('CashBalance'))
+                    st.metric("Cash", _fmt_usd(cash))
+                with c3:
+                    st.metric("Available Funds",
+                              _fmt_usd(account.get('AvailableFunds')))
+                with c4:
+                    st.metric("Buying Power",
+                              _fmt_usd(account.get('BuyingPower')))
+
+            st.divider()
+
+            # ---- Positions ----
+            st.subheader("📋 Positions")
+
+            if not positions:
+                st.info("No open positions found in your account.")
+            else:
+                end_d   = get_last_trading_date()
+                start_d = end_d - timedelta(days=7)   # look back up to 7 days for last close
+
+                rows = []
+                for sym, pos in positions.items():
+                    qty      = pos['position']
+                    avg_cost = pos['avg_cost']
+
+                    # Current price: last available EOD close from Parquet
+                    df_sym = load_from_parquet(sym, start_d, end_d)
+                    current_price = float(df_sym['Close'].iloc[-1]) \
+                        if df_sym is not None and not df_sym.empty else None
+
+                    cost_basis   = qty * avg_cost
+                    market_value = qty * current_price if current_price is not None else None
+                    unreal_pnl   = (market_value - cost_basis) if market_value is not None else None
+                    pnl_pct      = (unreal_pnl / abs(cost_basis) * 100) \
+                        if (unreal_pnl is not None and cost_basis != 0) else None
+
+                    rows.append({
+                        'Symbol':           sym,
+                        'Type':             pos.get('sec_type', ''),
+                        'Qty':              qty,
+                        'Avg Cost ($)':     avg_cost,
+                        'Price ($)':        current_price,
+                        'Market Value ($)': market_value,
+                        'Unreal. P&L ($)':  unreal_pnl,
+                        'P&L %':            pnl_pct,
+                    })
+
+                df_port   = pd.DataFrame(rows)
+                total_mv  = df_port['Market Value ($)'].dropna().sum()
+                total_pnl = df_port['Unreal. P&L ($)'].dropna().sum()
+
+                mc1, mc2, mc3 = st.columns(3)
+                with mc1:
+                    st.metric("Open Positions", len(positions))
+                with mc2:
+                    st.metric("Total Market Value", f"${total_mv:,.2f}")
+                with mc3:
+                    pnl_str = f"${total_pnl:+,.2f}"
+                    st.metric("Total Unrealized P&L", pnl_str, delta=pnl_str)
+
+                def _p(v, fmt):
+                    return fmt.format(v) if v is not None and pd.notna(v) else "N/A"
+
+                display_df = pd.DataFrame([
+                    {
+                        'Symbol':    r['Symbol'],
+                        'Type':      r['Type'],
+                        'Qty':       int(r['Qty']),
+                        'Avg Cost':  _p(r['Avg Cost ($)'],     "${:.2f}"),
+                        'Price':     _p(r['Price ($)'],         "${:.2f}"),
+                        'Mkt Value': _p(r['Market Value ($)'], "${:,.2f}"),
+                        'P&L':       _p(r['Unreal. P&L ($)'], "${:+,.2f}"),
+                        'P&L %':     _p(r['P&L %'],            "{:+.2f}%"),
+                    }
+                    for r in rows
+                ])
+
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     # ==================== TAB: CONFIGURATION ====================
     elif tab_selection == "⚙️ Configuration":
