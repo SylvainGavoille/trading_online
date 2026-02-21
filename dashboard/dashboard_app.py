@@ -24,7 +24,8 @@ from src.agents.stock_search_agent import (
     simple_stock_search, StockSearchAgent, parse_stock_suggestions,
 )
 
-# Import risk profile manager
+# Import portfolio and risk profile managers
+from portfolio_manager import PortfolioManager, configure_ibkr_client as configure_pm_client
 from risk_profile_manager import RiskProfileManager, RISK_PROFILES
 
 # Page configuration
@@ -84,6 +85,7 @@ def get_ib_client() -> Optional[IBClient]:
         config = load_config()
         client = IBClient(config)
         if client.connect_and_run():
+            configure_pm_client(client)
             return client
         return None
     except Exception:
@@ -740,120 +742,363 @@ def main():
     elif tab_selection == "📊 Portfolio":
         st.header("📊 My Portfolio")
 
+        # Initialize managers
         ib_client = get_ib_client()
+        portfolio_manager = PortfolioManager(use_ibkr=True)
+        risk_manager = RiskProfileManager()
 
-        if ib_client is None or not ib_client.isConnected():
-            st.error("❌ IBKR not connected — start TWS or IB Gateway to see your portfolio.")
-            st.info("Launch TWS or IB Gateway on port 7497 (paper) or 7496 (live), then restart the dashboard.")
+        # IBKR connection indicator
+        if ib_client and ib_client.isConnected():
+            st.success("✅ Connected to IBKR - Socket connection active", icon="📡")
+            ibkr_connected = True
+
+            # Add diagnostic info
+            with st.expander("🔍 IBKR Connection Diagnostics", expanded=False):
+                st.write("**Connection Status:**")
+                st.write(f"- Socket connected: ✅ Yes")
+                st.write(f"- Host: {ib_client.host}")
+                st.write(f"- Port: {ib_client.port}")
+                st.write(f"- Client ID: {ib_client.clientId}")
+
+                # Show managed accounts
+                try:
+                    managed_accounts = ib_client.get_managed_accounts()
+                    if managed_accounts:
+                        st.write(f"- Managed accounts: {', '.join(managed_accounts)}")
+                    else:
+                        st.write(f"- Managed accounts: ⚠️ Not yet received (may take a moment)")
+                except AttributeError:
+                    st.write(f"- Managed accounts: ⚠️ Restart dashboard to see account IDs")
+
+                st.write("")
+                st.write("**Attempting to retrieve account data...**")
+
+                # Test account summary
+                try:
+                    test_account = ib_client.get_account_summary(timeout=5.0)
+                    if test_account:
+                        st.write(f"- Account summary: ✅ Retrieved {len(test_account)} fields")
+                        for key, value in test_account.items():
+                            st.write(f"  - {key}: {value}")
+                    else:
+                        st.write("- Account summary: ❌ Empty response")
+                except Exception as e:
+                    st.write(f"- Account summary: ❌ Error: {e}")
+
+                # Test positions
+                try:
+                    test_positions = ib_client.get_account_positions(timeout=5.0)
+                    if test_positions:
+                        st.write(f"- Positions: ✅ Retrieved {len(test_positions)} positions")
+                    else:
+                        st.write("- Positions: ⚠️ No positions found (account may be empty)")
+                except Exception as e:
+                    st.write(f"- Positions: ❌ Error: {e}")
         else:
-            st.success("✅ Connected to IBKR", icon="📡")
+            st.warning("📊 IBKR disconnected — start TWS or IB Gateway to see real data.", icon="⚠️")
+            ibkr_connected = False
 
-            if st.button("🔄 Refresh Portfolio", type="primary"):
-                st.session_state.pop('portfolio_account', None)
-                st.session_state.pop('portfolio_positions', None)
+        # Capital only from IBKR — no default value
+        available_cash = None
+        ibkr_error = None
+        if ibkr_connected:
+            try:
+                account = ib_client.get_account_summary(timeout=10.0)
+                if account and account.get('TotalCashValue') is not None:
+                    available_cash = float(account['TotalCashValue'])
+                elif not account:
+                    ibkr_error = "No account data returned from IBKR"
+            except Exception as e:
+                ibkr_error = f"IBKR data retrieval error: {str(e)}"
 
-            # Load data once per session (or after refresh)
-            if 'portfolio_account' not in st.session_state:
-                with st.spinner("Loading account summary..."):
-                    st.session_state['portfolio_account'] = ib_client.get_account_summary(timeout=10.0)
+        # Résumé portfolio (cash = 0 si IBKR déconnecté)
+        summary = portfolio_manager.get_portfolio_summary(available_cash=available_cash or 0)
 
-            if 'portfolio_positions' not in st.session_state:
-                with st.spinner("Loading positions..."):
-                    st.session_state['portfolio_positions'] = ib_client.get_account_positions(timeout=10.0)
+        # Display main metrics
+        st.subheader("📈 Global Summary")
 
-            account   = st.session_state['portfolio_account']
-            positions = st.session_state['portfolio_positions']
+        # Show IBKR error if any
+        if ibkr_error:
+            st.warning(f"⚠️ {ibkr_error}")
 
-            # ---- Account Summary ----
-            if account:
-                st.subheader("💰 Account Summary")
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-                def _fmt_usd(v):
-                    return f"${v:,.2f}" if isinstance(v, (int, float)) else "—"
+        with col1:
+            st.metric(
+                "🏦 Available Capital",
+                f"${available_cash:,.2f}" if available_cash is not None else "N/A",
+                help="TotalCashValue (IBKR)" if ibkr_connected else "IBKR connection required"
+            )
 
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    st.metric("Net Liquidation",
-                              _fmt_usd(account.get('NetLiquidation')))
-                with c2:
-                    cash = account.get('TotalCashValue', account.get('CashBalance'))
-                    st.metric("Cash", _fmt_usd(cash))
-                with c3:
-                    st.metric("Available Funds",
-                              _fmt_usd(account.get('AvailableFunds')))
-                with c4:
-                    st.metric("Buying Power",
-                              _fmt_usd(account.get('BuyingPower')))
+        with col2:
+            st.metric(
+                "💰 Invested Capital",
+                f"${summary['total_invested']:,.2f}",
+                help="Amount invested in positions"
+            )
+
+        with col3:
+            st.metric(
+                "📊 Position Value",
+                f"${summary['total_value']:,.2f}",
+                help="Current value of all positions"
+            )
+
+        with col4:
+            if available_cash is not None:
+                st.metric(
+                    "💎 Total Capitalization",
+                    f"${summary['total_capitalization']:,.2f}",
+                    help="Position value + TotalCashValue (IBKR)"
+                )
+            else:
+                st.metric(
+                    "💎 Position Value",
+                    f"${summary['total_value']:,.2f}",
+                    help="Position value only (IBKR disconnected)"
+                )
+
+        with col5:
+            pnl_color = "normal" if summary['total_pnl'] >= 0 else "inverse"
+            st.metric(
+                "💵 Net Gain",
+                f"${summary['total_pnl']:,.2f}",
+                f"{summary['total_gain_pct']:.2f}%",
+                delta_color=pnl_color,
+                help="Gain/loss after fees"
+            )
+
+        with col6:
+            st.metric(
+                "📦 Positions",
+                f"{summary['num_positions']}",
+                help="Nombre de positions ouvertes"
+            )
+
+        st.divider()
+
+        # Capital Allocation (IBKR only — no manual entry)
+        st.subheader("📊 Capital Allocation")
+
+        if ibkr_connected and available_cash is not None and summary['total_capitalization'] > 0:
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                invested_pct = (summary['total_invested'] / summary['total_capitalization']) * 100
+                cash_pct = (available_cash / summary['total_capitalization']) * 100
+
+                st.write(f"💰 **Invested:** {invested_pct:.1f}%")
+                st.progress(min(invested_pct / 100, 1.0))
+
+                st.write(f"🏦 **Cash:** {cash_pct:.1f}%")
+                st.progress(min(cash_pct / 100, 1.0))
+
+            with col2:
+                current_profile = risk_manager.get_risk_profile()
+                if current_profile == "Conservative" and invested_pct > 40:
+                    st.warning("⚠️ High investment rate for Conservative profile")
+                elif current_profile == "Very Aggressive" and cash_pct > 20:
+                    st.info("💡 Very Aggressive profile: You could invest more cash")
+        else:
+            st.info(
+                "📡 Capital data comes exclusively from your IBKR account. "
+                "Start TWS or IB Gateway to display allocation.",
+                icon="ℹ️"
+            )
+
+        st.divider()
+
+        # Tableau des positions
+        if summary['num_positions'] > 0:
+            st.subheader("📋 Position Details")
+
+            # Display data source
+            if ibkr_connected:
+                st.info("📡 **Positions loaded from your IBKR account in real-time**", icon="✅")
+            else:
+                st.info("💾 **Positions loaded from local configuration** (portfolio.json file)", icon="📁")
+
+            # Get DataFrame with all stats
+            df_portfolio = portfolio_manager.calculate_portfolio_stats()
+
+            # Display table with formatting
+            st.dataframe(
+                df_portfolio,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Symbole": st.column_config.TextColumn(
+                        width="small",
+                        help="Stock symbol"
+                    ),
+                    "Actions": st.column_config.NumberColumn(
+                        format="%d",
+                        help="Number of shares held"
+                    ),
+                    "Prix Achat": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Average purchase price"
+                    ),
+                    "Prix Actuel": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Current market price"
+                    ),
+                    "Valeur Investie": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Invested capital (shares × purchase price)"
+                    ),
+                    "Valeur Actuelle": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Current position value"
+                    ),
+                    "Frais Achat": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Fees paid at purchase"
+                    ),
+                    "Frais Vente (est.)": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Estimated fees for sale"
+                    ),
+                    "Frais Totaux": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Total fees (purchase + estimated sale)"
+                    ),
+                    "Plus-Value ($)": st.column_config.NumberColumn(
+                        format="$%.2f",
+                        help="Net gain after fees"
+                    ),
+                    "Gain IBKR (%)": st.column_config.NumberColumn(
+                        format="%.2f%%",
+                        help="Gain percentage shown in IBKR (without fees)"
+                    ),
+                    "Gain Réel (%)": st.column_config.NumberColumn(
+                        format="%.2f%%",
+                        help="Real gain percentage after fees"
+                    ),
+                    "Plan IBKR": st.column_config.TextColumn(
+                        width="small",
+                        help="IBKR plan used (Lite, Pro Fixed, Pro Tiered)"
+                    ),
+                    "Date Achat": st.column_config.DateColumn(
+                        format="DD/MM/YYYY",
+                        help="Position purchase date"
+                    )
+                }
+            )
+
+            # Explanatory legend
+            with st.expander("ℹ️ Understanding gain differences"):
+                st.markdown("""
+                **📊 IBKR Gain (%)** vs **💰 Real Gain (%)**
+
+                - **IBKR Gain (%)**: Percentage shown in your IBKR interface
+                  - Formula: `(Current Price - Purchase Price) / Purchase Price × 100`
+                  - ⚠️ Does NOT account for transaction fees
+
+                - **Real Gain (%)**: Your actual gain after all fees
+                  - Formula: `(Net Gain) / Invested Capital × 100`
+                  - ✅ Includes purchase AND sale fees (estimated)
+                  - This is your **true return**
+
+                **Example:**
+                - Purchase: 100 shares at $50 = $5000 (+ $5 fees)
+                - Current price: $55
+                - IBKR Gain: +10% (shown in IBKR)
+                - Real Gain: +9.80% (after purchase and sale fees)
+
+                **💡 Tip:** Always monitor **Real Gain** for your investment strategy.
+                """)
 
             st.divider()
 
-            # ---- Positions ----
-            st.subheader("📋 Positions")
+            # Add new position
+            st.subheader("➕ Add Position")
 
-            if not positions:
-                st.info("No open positions found in your account.")
-            else:
-                end_d   = get_last_trading_date()
-                start_d = end_d - timedelta(days=7)   # look back up to 7 days for last close
+            with st.form("add_position_form"):
+                col1, col2, col3 = st.columns(3)
 
-                rows = []
-                for sym, pos in positions.items():
-                    qty      = pos['position']
-                    avg_cost = pos['avg_cost']
+                with col1:
+                    new_symbol = st.text_input("Symbol", placeholder="Ex: AAPL")
+                    new_shares = st.number_input("Number of shares", min_value=1, value=10)
 
-                    # Current price: last available EOD close from Parquet
-                    df_sym = load_from_parquet(sym, start_d, end_d)
-                    current_price = float(df_sym['Close'].iloc[-1]) \
-                        if df_sym is not None and not df_sym.empty else None
+                with col2:
+                    new_price = st.number_input("Purchase price ($)", min_value=0.01, value=100.0, step=0.01)
+                    new_date = st.date_input("Purchase date", value=datetime.now())
 
-                    cost_basis   = qty * avg_cost
-                    market_value = qty * current_price if current_price is not None else None
-                    unreal_pnl   = (market_value - cost_basis) if market_value is not None else None
-                    pnl_pct      = (unreal_pnl / abs(cost_basis) * 100) \
-                        if (unreal_pnl is not None and cost_basis != 0) else None
+                with col3:
+                    new_plan = st.selectbox(
+                        "IBKR Plan",
+                        ["Lite", "Pro Fixed", "Pro Tiered"],
+                        index=0
+                    )
 
-                    rows.append({
-                        'Symbol':           sym,
-                        'Type':             pos.get('sec_type', ''),
-                        'Qty':              qty,
-                        'Avg Cost ($)':     avg_cost,
-                        'Price ($)':        current_price,
-                        'Market Value ($)': market_value,
-                        'Unreal. P&L ($)':  unreal_pnl,
-                        'P&L %':            pnl_pct,
-                    })
+                submit_button = st.form_submit_button("Add Position", use_container_width=True)
 
-                df_port   = pd.DataFrame(rows)
-                total_mv  = df_port['Market Value ($)'].dropna().sum()
-                total_pnl = df_port['Unreal. P&L ($)'].dropna().sum()
+                if submit_button:
+                    if new_symbol:
+                        portfolio_manager.add_position(
+                            symbol=new_symbol.upper(),
+                            shares=new_shares,
+                            avg_price=new_price,
+                            date_bought=new_date.strftime("%Y-%m-%d"),
+                            ibkr_plan=new_plan
+                        )
+                        st.success(f"✅ Position {new_symbol.upper()} added successfully!")
+                        st.rerun()
+                    else:
+                        st.error("⚠️ Please enter a symbol")
 
-                mc1, mc2, mc3 = st.columns(3)
-                with mc1:
-                    st.metric("Open Positions", len(positions))
-                with mc2:
-                    st.metric("Total Market Value", f"${total_mv:,.2f}")
-                with mc3:
-                    pnl_str = f"${total_pnl:+,.2f}"
-                    st.metric("Total Unrealized P&L", pnl_str, delta=pnl_str)
+            st.divider()
 
-                def _p(v, fmt):
-                    return fmt.format(v) if v is not None and pd.notna(v) else "N/A"
+            # Remove position
+            st.subheader("🗑️ Remove Position")
 
-                display_df = pd.DataFrame([
-                    {
-                        'Symbol':    r['Symbol'],
-                        'Type':      r['Type'],
-                        'Qty':       int(r['Qty']),
-                        'Avg Cost':  _p(r['Avg Cost ($)'],     "${:.2f}"),
-                        'Price':     _p(r['Price ($)'],         "${:.2f}"),
-                        'Mkt Value': _p(r['Market Value ($)'], "${:,.2f}"),
-                        'P&L':       _p(r['Unreal. P&L ($)'], "${:+,.2f}"),
-                        'P&L %':     _p(r['P&L %'],            "{:+.2f}%"),
-                    }
-                    for r in rows
-                ])
+            symbols = df_portfolio["Symbole"].tolist()
+            symbol_to_remove = st.selectbox("Select position to remove", symbols)
 
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
+            if st.button("🗑️ Remove this position", use_container_width=True):
+                portfolio_manager.remove_position(symbol_to_remove)
+                st.success(f"✅ Position {symbol_to_remove} deleted!")
+                st.rerun()
+
+        else:
+            st.info("📭 No positions in your portfolio")
+            st.write("Add your first position below:")
+
+            # Form for first position
+            with st.form("first_position_form"):
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    new_symbol = st.text_input("Symbol", placeholder="Ex: AAPL")
+                    new_shares = st.number_input("Number of shares", min_value=1, value=10)
+
+                with col2:
+                    new_price = st.number_input("Purchase price ($)", min_value=0.01, value=100.0, step=0.01)
+                    new_date = st.date_input("Purchase date", value=datetime.now())
+
+                with col3:
+                    new_plan = st.selectbox(
+                        "IBKR Plan",
+                        ["Lite", "Pro Fixed", "Pro Tiered"],
+                        index=0
+                    )
+
+                submit_button = st.form_submit_button("Add Position", use_container_width=True)
+
+                if submit_button:
+                    if new_symbol:
+                        portfolio_manager.add_position(
+                            symbol=new_symbol.upper(),
+                            shares=new_shares,
+                            avg_price=new_price,
+                            date_bought=new_date.strftime("%Y-%m-%d"),
+                            ibkr_plan=new_plan
+                        )
+                        st.success(f"✅ Position {new_symbol.upper()} added successfully!")
+                        st.rerun()
+                    else:
+                        st.error("⚠️ Please enter a symbol")
 
     # ==================== TAB: CONFIGURATION ====================
     elif tab_selection == "⚙️ Configuration":
