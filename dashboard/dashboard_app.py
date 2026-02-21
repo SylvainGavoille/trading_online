@@ -18,6 +18,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.data.download_history import fetch_batch, parquet_path, save_parquet
+from src.data.dynamic_stocks import get_symbol_name_map
 from src.api.ib_connector import IBClient
 from src.agents.stock_search_agent import (
     simple_stock_search, StockSearchAgent, parse_stock_suggestions,
@@ -260,6 +261,26 @@ def get_parquet_symbols() -> set:
             if symbols:
                 return symbols
     return set()
+
+
+@st.cache_data(ttl=3600)
+def get_symbol_labels() -> dict:
+    """
+    Retourne un dict {symbol: label_affichage} pour enrichir le selectbox.
+    Exemple : {'AAPL': 'AAPL — Apple Inc. (Technology)', ...}
+    """
+    name_map = get_symbol_name_map()
+    labels = {}
+    for sym, (name, sec_type, industry) in name_map.items():
+        label = sym
+        if name and name != sym:
+            label += f" — {name}"
+        if industry and industry not in ('Unknown', 'N/A', ''):
+            label += f" ({industry})"
+        elif sec_type and sec_type not in ('', 'Unknown'):
+            label += f" [{sec_type}]"
+        labels[sym] = label
+    return labels
 
 def calculate_statistics(df: pd.DataFrame) -> Dict:
     """
@@ -572,6 +593,7 @@ def main():
 
         # Full sorted list of symbols available in the Parquet store
         all_parquet_symbols = sorted(get_parquet_symbols())
+        symbol_labels = get_symbol_labels()
 
         default_symbol = quick_selected if quick_selected else "AAPL"
         default_index = all_parquet_symbols.index(default_symbol) if default_symbol in all_parquet_symbols else 0
@@ -580,6 +602,7 @@ def main():
             f"Choose a symbol ({len(all_parquet_symbols)} available — type to filter)",
             options=all_parquet_symbols,
             index=default_index,
+            format_func=lambda s: symbol_labels.get(s, s),
             key="symbol_selectbox",
         )
 
