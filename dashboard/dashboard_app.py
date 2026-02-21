@@ -559,7 +559,7 @@ def main():
 
         st.divider()
 
-        # Section 2: Manual selection
+        # Section 2: Symbol selection from available Parquet symbols
         st.subheader("Stock Selection")
 
         # Check if quick select was used
@@ -570,44 +570,21 @@ def main():
             st.success(f"✅ Quick selected: **{quick_selected}**")
             st.caption("Data will load automatically below")
 
-        col1, col2 = st.columns([1, 2])
+        # Full sorted list of symbols available in the Parquet store
+        all_parquet_symbols = sorted(get_parquet_symbols())
 
-        with col1:
-            # Category selection
-            category = st.selectbox(
-                "Category",
-                ["All"] + list(POPULAR_STOCKS.keys())
-            )
+        default_symbol = quick_selected if quick_selected else "AAPL"
+        default_index = all_parquet_symbols.index(default_symbol) if default_symbol in all_parquet_symbols else 0
 
-            # Filter stocks by category
-            if category == "All":
-                available_stocks = ALL_STOCKS
-            else:
-                available_stocks = POPULAR_STOCKS[category]
-
-        with col2:
-            # Symbol selection
-            selected_symbol = st.selectbox(
-                "Stock Symbol",
-                available_stocks,
-                index=0
-            )
-
-        # Allow manual symbol entry
-        custom_symbol = st.text_input(
-            "Or enter a custom symbol",
-            placeholder="Ex: TSLA, BTC-USD, EUR=X...",
-            value=quick_selected if quick_selected else "",
-            key="custom_symbol"
+        selected_symbol = st.selectbox(
+            f"Choose a symbol ({len(all_parquet_symbols)} available — type to filter)",
+            options=all_parquet_symbols,
+            index=default_index,
+            key="symbol_selectbox",
         )
 
-        # Determine final symbol (priority: custom > quick select > dropdown)
-        if custom_symbol:
-            final_symbol = custom_symbol.upper()
-        elif quick_selected:
-            final_symbol = quick_selected
-        else:
-            final_symbol = selected_symbol
+        # Determine final symbol (priority: quick select > dropdown)
+        final_symbol = quick_selected if quick_selected else selected_symbol
 
         st.divider()
 
