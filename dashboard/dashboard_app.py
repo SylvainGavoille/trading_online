@@ -369,24 +369,29 @@ def llm_stock_suggestions(query: str, use_llm: bool = False) -> tuple[List[dict]
     Returns:
         (liste de dictionnaires avec symbol/name/description, explication)
     """
+    parquet_syms = get_parquet_symbols()
+
     try:
         if use_llm:
             # Version avec LLM (nécessite Ollama configuré)
             agent = StockSearchAgent()
-            # Utiliser agent() au lieu de agent.forward() (recommandation DSPy)
-            result = agent(query, max_results=10)
+            result = agent(query, max_results=10, parquet_symbols=parquet_syms)
 
             # Parser les résultats
             stocks = parse_stock_suggestions(result.selected_stocks)
             return stocks, result.explanation
         else:
             # Version simple sans LLM (toujours disponible)
-            stocks, explanation = simple_stock_search(query, max_results=10)
+            stocks, explanation = simple_stock_search(
+                query, max_results=10, parquet_symbols=parquet_syms
+            )
             return stocks, explanation
 
     except Exception as e:
         # Fallback sur recherche simple en cas d'erreur
-        stocks, explanation = simple_stock_search(query, max_results=10)
+        stocks, explanation = simple_stock_search(
+            query, max_results=10, parquet_symbols=parquet_syms
+        )
         return stocks, explanation
 
 def llm_stock_analysis(symbol: str, df: pd.DataFrame, period: str) -> tuple[str, List[str]]:
@@ -487,11 +492,6 @@ def main():
                         )
                         if use_ai_search and not dspy_ready:
                             st.warning("⚠️ Ollama not available — fell back to Yahoo Finance search.")
-
-                    # Filter to symbols available in the Parquet store
-                    if stocks:
-                        parquet_syms = get_parquet_symbols()
-                        stocks = [s for s in stocks if s['symbol'] in parquet_syms]
 
                     # Persist results in session state so selections survive reruns
                     if stocks:
