@@ -99,6 +99,10 @@ class IBClient(EWrapper, EClient):
         self._news_article: Dict[int, dict] = {}
         self._news_article_events: Dict[int, threading.Event] = {}
 
+        # News bulletins (general market news — no contract required)
+        self._news_bulletins: List[dict] = []
+        self._news_bulletins_active = False
+
     def connect_and_run(self):
         """Establish connection and start message processing thread"""
         try:
@@ -850,3 +854,45 @@ class IBClient(EWrapper, EClient):
             }
         if requestId in self._news_article_events:
             self._news_article_events[requestId].set()
+
+    # ---- General bulletins (no contract required) ----
+
+    def get_news_bulletins(self, collect_secs: float = 4.0) -> List[dict]:
+        """
+        Fetch all available general market bulletins via reqNewsBulletins.
+        IBKR delivers past bulletins in a burst when allMsgs=True; we
+        collect for `collect_secs` seconds then cancel the subscription.
+
+        Returns:
+            List of dicts sorted newest-first:
+            [{'id', 'type', 'message', 'exchange', 'received_at'}, ...]
+            type 1 = regular news, type 2 = exchange bulletin
+        """
+        with self._lock:
+            self._news_bulletins = []
+            self._news_bulletins_active = True
+
+        self.reqNewsBulletins(True)   # True = deliver all historical bulletins
+        time.sleep(collect_secs)
+        self.cancelNewsBulletins()
+
+        with self._lock:
+            self._news_bulletins_active = False
+            result = list(self._news_bulletins)
+
+        # Sort newest id first (IBKR msgId is monotonically increasing)
+        result.sort(key=lambda x: x['id'], reverse=True)
+        return result
+
+    def updateNewsBulletin(self, msgId: int, msgType: int, newsMessage: str, originExch: str) -> None:
+        """Callback — receives one bulletin at a time from reqNewsBulletins."""
+        if not self._news_bulletins_active:
+            return
+        with self._lock:
+            self._news_bulletins.append({
+                'id':          msgId,
+                'type':        msgType,      # 1 = regular, 2 = exchange
+                'message':     newsMessage,
+                'exchange':    originExch,
+                'received_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            })

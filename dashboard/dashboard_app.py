@@ -1002,122 +1002,81 @@ def main():
         else:
             st.success("✅ Connecté à IBKR", icon="📡")
 
-            # --- Controls ---
-            all_parquet_syms = sorted(get_parquet_symbols())
-            symbol_labels    = get_symbol_labels()
+            # --- Filter bar ---
+            col_filter, col_type, col_btn = st.columns([3, 1, 1])
 
-            col_sym, col_days, col_btn = st.columns([3, 1, 1])
-
-            with col_sym:
-                news_symbol = st.selectbox(
-                    "Symbole",
-                    options=all_parquet_syms,
-                    index=all_parquet_syms.index("AAPL") if "AAPL" in all_parquet_syms else 0,
-                    format_func=lambda s: symbol_labels.get(s, s),
-                    key="news_symbol_select",
+            with col_filter:
+                news_filter = st.text_input(
+                    "Filtrer les actualités",
+                    placeholder="Mot-clé (ex : Fed, earnings, inflation…)",
+                    key="news_filter",
                 )
 
-            with col_days:
-                news_days = st.selectbox(
-                    "Période",
-                    options=[7, 14, 30],
-                    format_func=lambda d: f"{d} jours",
-                    key="news_days_select",
+            with col_type:
+                bulletin_type = st.selectbox(
+                    "Type",
+                    options=["Tous", "Actualités (1)", "Bulletins bourse (2)"],
+                    key="news_type_filter",
                 )
 
             with col_btn:
                 st.write("")
                 st.write("")
-                load_news = st.button("📰 Charger", use_container_width=True, type="primary")
+                load_news = st.button("🔄 Charger / Actualiser", use_container_width=True, type="primary")
 
-            # --- Load news ---
+            # --- Load bulletins ---
             if load_news:
-                with st.spinner(f"Recherche du contrat {news_symbol}…"):
-                    details = ib_client.get_contract_details(news_symbol)
+                with st.spinner("Collecte des actualités IBKR (4 sec.)…"):
+                    bulletins = ib_client.get_news_bulletins(collect_secs=4.0)
 
-                if not details:
-                    st.error(f"Contrat « {news_symbol} » introuvable sur IBKR.")
+                st.session_state['news_bulletins'] = bulletins
+
+            # --- Display ---
+            bulletins = st.session_state.get('news_bulletins', [])
+
+            if not bulletins and not load_news:
+                st.info(
+                    "Cliquez sur **🔄 Charger / Actualiser** pour récupérer les actualités "
+                    "diffusées par IBKR (bulletins de marché, avis des bourses, communiqués).",
+                    icon="ℹ️",
+                )
+            elif not bulletins:
+                st.warning(
+                    "Aucun bulletin reçu d'IBKR.\n\n"
+                    "Cela signifie généralement que votre compte n'a pas d'abonnement "
+                    "aux flux de news IBKR, ou qu'aucune actualité n'a été diffusée récemment.\n\n"
+                    "💡 Activez un abonnement News dans *IBKR Account Management → Market Data*.",
+                    icon="⚠️",
+                )
+            else:
+                # Apply type filter
+                type_map = {"Tous": None, "Actualités (1)": 1, "Bulletins bourse (2)": 2}
+                type_filter = type_map[bulletin_type]
+                visible = [b for b in bulletins if type_filter is None or b['type'] == type_filter]
+
+                # Apply keyword filter
+                kw = news_filter.strip().lower()
+                if kw:
+                    visible = [b for b in visible if kw in b['message'].lower() or kw in b['exchange'].lower()]
+
+                st.subheader(f"📋 {len(visible)} actualité(s){' filtrée(s)' if kw or type_filter else ''}")
+
+                if not visible:
+                    st.info("Aucune actualité ne correspond aux filtres sélectionnés.")
                 else:
-                    con_id = details[0]['con_id']
+                    for b in visible:
+                        exch_tag = f" — {b['exchange']}" if b['exchange'] else ""
+                        type_tag = "📰 Actualité" if b['type'] == 1 else "🏛️ Bulletin bourse"
+                        label    = f"{type_tag}{exch_tag}  •  {b['received_at']}"
 
-                    # Discover available providers
-                    with st.spinner("Récupération des fournisseurs de news…"):
-                        providers = ib_client.get_news_providers()
+                        # Show first 120 chars of message as expander header
+                        preview = b['message'][:120].replace("\n", " ")
+                        if len(b['message']) > 120:
+                            preview += "…"
 
-                    if providers:
-                        provider_codes = "+".join(p['code'] for p in providers)
-                        st.caption(f"Fournisseurs disponibles : {', '.join(p['name'] for p in providers)}")
-                    else:
-                        # Fallback — try common providers anyway
-                        provider_codes = "BRFG+DJNL+BRFUPDN"
-                        st.caption("Fournisseurs de news non détectés — tentative avec les codes standards.")
-
-                    # Build date range
-                    end_dt   = ""          # empty = now
-                    start_dt = (datetime.now() - timedelta(days=news_days)).strftime("%Y-%m-%d %H:%M:%S.0")
-
-                    with st.spinner(f"Chargement des actualités ({news_days} derniers jours)…"):
-                        news_items = ib_client.get_historical_news(
-                            con_id, provider_codes, start_dt, end_dt,
-                            total_results=100,
-                        )
-
-                    if news_items:
-                        st.session_state['news_items']   = news_items
-                        st.session_state['news_symbol']  = news_symbol
-                        st.session_state['loaded_articles'] = {}   # reset article cache
-                    else:
-                        st.session_state['news_items']  = []
-                        st.session_state['news_symbol'] = news_symbol
-                        st.warning(
-                            f"Aucune actualité trouvée pour **{news_symbol}** "
-                            f"sur les {news_days} derniers jours.\n\n"
-                            "Cela peut indiquer que votre abonnement IBKR ne couvre pas "
-                            "ce fournisseur de news, ou qu'il n'y a pas eu d'actualités récentes."
-                        )
-
-            # --- Display news ---
-            news_items = st.session_state.get('news_items', [])
-            news_sym   = st.session_state.get('news_symbol', '')
-
-            if news_items:
-                st.divider()
-                st.subheader(f"📋 {len(news_items)} actualité(s) — {news_sym}")
-
-                if 'loaded_articles' not in st.session_state:
-                    st.session_state['loaded_articles'] = {}
-
-                for i, item in enumerate(news_items):
-                    # Parse date for display
-                    raw_time = item['time']
-                    try:
-                        dt_obj   = datetime.strptime(raw_time[:19], "%Y-%m-%d %H:%M:%S")
-                        disp_dt  = dt_obj.strftime("%d/%m/%Y %H:%M")
-                    except Exception:
-                        disp_dt = raw_time[:19]
-
-                    art_key = item['article_id']
-                    header  = f"**{disp_dt}** — {item['headline']}"
-
-                    with st.expander(header, expanded=False):
-                        st.caption(f"Source : {item['provider']}  •  {disp_dt}")
-
-                        if art_key not in st.session_state['loaded_articles']:
-                            if st.button("📖 Lire l'article complet", key=f"art_btn_{i}"):
-                                with st.spinner("Chargement de l'article…"):
-                                    article = ib_client.get_news_article(item['provider'], art_key)
-                                st.session_state['loaded_articles'][art_key] = article
-                                st.rerun()
-                        else:
-                            article = st.session_state['loaded_articles'][art_key]
-                            if article and article.get('text'):
-                                if article['type'] == 0:
-                                    # Text / HTML
-                                    st.markdown(article['text'], unsafe_allow_html=True)
-                                else:
-                                    st.info("Article en format binaire (PDF) — non affichable ici.")
-                            else:
-                                st.warning("Article non disponible (abonnement requis ou contenu vide).")
+                        with st.expander(preview, expanded=False):
+                            st.caption(label)
+                            st.markdown(b['message'])
 
     # ==================== TAB: CONFIGURATION ====================
     elif tab_selection == "⚙️ Configuration":
