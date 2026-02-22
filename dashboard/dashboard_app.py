@@ -458,8 +458,6 @@ def main():
 
     # Initialiser IBKR dès le démarrage (connexion partagée)
     ib = get_ib_client()
-    if ib is None or not ib.isConnected():
-        st.warning("⚠️ IBKR not connected — start TWS or IB Gateway before using the dashboard.")
 
     # Sidebar - Menu de navigation
     st.sidebar.title("Navigation")
@@ -487,6 +485,24 @@ def main():
             st.rerun()
 
     tab_selection = st.session_state["tab_selection"]
+
+    # --- IBKR connection status in sidebar ---
+    st.sidebar.divider()
+    ib = get_ib_client()   # already cached — no new connection attempt
+    if ib is not None and ib.isConnected():
+        st.sidebar.success("🟢 IBKR connecté")
+        if ib.reconnect_attempts > 0 and ib.last_reconnect_at:
+            st.sidebar.caption(
+                f"Reconnexions : {ib.reconnect_attempts} "
+                f"(dernière : {ib.last_reconnect_at.strftime('%H:%M:%S')})"
+            )
+    else:
+        st.sidebar.error("🔴 IBKR déconnecté")
+        st.sidebar.caption("Le watchdog tente de reconnecter automatiquement.")
+        if st.sidebar.button("🔄 Reconnecter manuellement", use_container_width=True):
+            # Clear the cached resource so get_ib_client() creates a fresh client
+            get_ib_client.clear()
+            st.rerun()
 
     # ==================== TAB: EXPLORATION ====================
     if tab_selection == "🔍 Exploration":

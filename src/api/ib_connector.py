@@ -103,27 +103,39 @@ class IBClient(EWrapper, EClient):
         self._news_bulletins: List[dict] = []
         self._news_bulletins_active = False
 
+        # Auto-reconnect watchdog
+        self._watchdog_thread: threading.Thread = None
+        self._watchdog_running = False
+        self.last_reconnect_at: datetime = None
+        self.reconnect_attempts: int = 0
+
     def connect_and_run(self):
         """Establish connection and start message processing thread"""
         try:
             # Connect to TWS
             self.connect(self.host, self.port, self.client_id)
-            
+
             # Start message processing in a separate thread
-            self._thread = threading.Thread(target=self._run_thread)
-            self._thread.daemon = True
+            self._thread = threading.Thread(target=self._run_thread, daemon=True)
             self._thread.start()
-            
+
             # Give time for initial connection messages
             time.sleep(1)
-            
+
             # Check if connection was successful
             if not self.isConnected():
                 print("Failed to establish connection")
                 return False
-                
+
+            # Start the auto-reconnect watchdog
+            self._watchdog_running = True
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop, daemon=True, name="IBWatchdog"
+            )
+            self._watchdog_thread.start()
+
             return True
-            
+
         except Exception as e:
             print(f"Error in connect_and_run: {e}")
             return False
@@ -137,8 +149,84 @@ class IBClient(EWrapper, EClient):
         finally:
             self._stop_event.set()
 
+    # -------------------------------------------------------------------------
+    # Auto-reconnect watchdog
+    # -------------------------------------------------------------------------
+
+    def _watchdog_loop(self):
+        """
+        Background thread: checks the connection every 30 s.
+        If disconnected, attempts to reconnect with exponential back-off
+        (5 s, 10 s, 20 s, 40 s, 80 s … capped at 120 s).
+        """
+        CHECK_INTERVAL = 30  # seconds between health checks
+
+        while self._watchdog_running:
+            # Sleep in 1-second increments so we can exit quickly
+            for _ in range(CHECK_INTERVAL):
+                if not self._watchdog_running:
+                    return
+                time.sleep(1)
+
+            if not self._watchdog_running:
+                return
+
+            if not self.isConnected():
+                print("[Watchdog] Connection lost — starting reconnect sequence")
+                self._do_reconnect()
+
+    def _do_reconnect(self, max_attempts: int = 10, base_delay: float = 5.0):
+        """
+        Try to re-establish the TCP connection and restart the message loop.
+        Uses exponential back-off between attempts (capped at 120 s).
+        """
+        for attempt in range(1, max_attempts + 1):
+            if not self._watchdog_running:
+                return
+
+            print(f"[Watchdog] Reconnect attempt {attempt}/{max_attempts}…")
+            try:
+                # Wait for the old run-thread to exit cleanly
+                if hasattr(self, '_thread') and self._thread and self._thread.is_alive():
+                    self._thread.join(timeout=5)
+
+                # Reset the stop event so _run_thread can work again
+                self._stop_event.clear()
+
+                # Re-establish TCP connection
+                self.connect(self.host, self.port, self.client_id)
+
+                # Restart the message-loop thread
+                self._thread = threading.Thread(
+                    target=self._run_thread, daemon=True, name="IBMessageLoop"
+                )
+                self._thread.start()
+
+                # Give IBKR time to send the initial handshake
+                time.sleep(2)
+
+                if self.isConnected():
+                    self.reconnect_attempts += 1
+                    self.last_reconnect_at = datetime.now()
+                    print(f"[Watchdog] ✅ Reconnected (total reconnects: {self.reconnect_attempts})")
+                    return
+
+            except Exception as exc:
+                print(f"[Watchdog] Attempt {attempt} failed: {exc}")
+
+            # Exponential back-off, capped at 120 s
+            delay = min(base_delay * (2 ** (attempt - 1)), 120)
+            print(f"[Watchdog] Waiting {delay:.0f} s before next attempt…")
+            for _ in range(int(delay)):
+                if not self._watchdog_running:
+                    return
+                time.sleep(1)
+
+        print("[Watchdog] ❌ All reconnect attempts exhausted")
+
     def disconnect(self):
-        """Disconnect from TWS"""
+        """Disconnect from TWS and stop the watchdog."""
+        self._watchdog_running = False
         self._stop_event.set()
         # Don't join if called from within the thread itself (avoids "cannot join current thread")
         if (self._thread
