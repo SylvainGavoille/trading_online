@@ -464,12 +464,29 @@ def main():
     # Sidebar - Menu de navigation
     st.sidebar.title("Navigation")
 
-    # Tabs dans le sidebar
-    tab_selection = st.sidebar.radio(
-        "Menu",
-        ["🔍 Exploration", "📊 Portfolio", "📰 Actualités", "⚙️ Configuration", "📚 Documentation"],
-        index=0
-    )
+    MENU_ITEMS = [
+        "🔍 Exploration",
+        "📊 Portfolio",
+        "📰 Actualités",
+        "⚙️ Configuration",
+        "📚 Documentation",
+    ]
+
+    if "tab_selection" not in st.session_state:
+        st.session_state["tab_selection"] = MENU_ITEMS[0]
+
+    for item in MENU_ITEMS:
+        is_active = st.session_state["tab_selection"] == item
+        if st.sidebar.button(
+            item,
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+            key=f"nav_{item}",
+        ):
+            st.session_state["tab_selection"] = item
+            st.rerun()
+
+    tab_selection = st.session_state["tab_selection"]
 
     # ==================== TAB: EXPLORATION ====================
     if tab_selection == "🔍 Exploration":
