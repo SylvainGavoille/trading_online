@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 import dspy
 from typing import List, Dict, Optional
 import yaml
@@ -467,7 +467,7 @@ def main():
     # Tabs dans le sidebar
     tab_selection = st.sidebar.radio(
         "Menu",
-        ["🔍 Exploration", "📊 Portfolio", "⚙️ Configuration", "📚 Documentation"],
+        ["🔍 Exploration", "📊 Portfolio", "📰 Actualités", "⚙️ Configuration", "📚 Documentation"],
         index=0
     )
 
@@ -750,7 +750,6 @@ def main():
         # IBKR connection indicator
         if ib_client and ib_client.isConnected():
             st.success("✅ Connected to IBKR - Socket connection active", icon="📡")
-            ibkr_connected = True
 
             # Add diagnostic info
             with st.expander("🔍 IBKR Connection Diagnostics", expanded=False):
@@ -795,31 +794,27 @@ def main():
                 except Exception as e:
                     st.write(f"- Positions: ❌ Error: {e}")
         else:
-            st.warning("📊 IBKR disconnected — start TWS or IB Gateway to see real data.", icon="⚠️")
-            ibkr_connected = False
+            st.info("📡 Connect to IBKR (TWS or IB Gateway) to view your portfolio.", icon="📡")
+            st.stop()
 
-        # Capital only from IBKR — no default value
+        # Fetch account data from IBKR
         available_cash = None
-        ibkr_error = None
-        if ibkr_connected:
-            try:
-                account = ib_client.get_account_summary(timeout=10.0)
-                if account and account.get('TotalCashValue') is not None:
+        buying_power = None
+        try:
+            account = ib_client.get_account_summary(timeout=10.0)
+            if account:
+                if account.get('TotalCashValue') is not None:
                     available_cash = float(account['TotalCashValue'])
-                elif not account:
-                    ibkr_error = "No account data returned from IBKR"
-            except Exception as e:
-                ibkr_error = f"IBKR data retrieval error: {str(e)}"
+                if account.get('BuyingPower') is not None:
+                    buying_power = float(account['BuyingPower'])
+        except Exception as e:
+            st.warning(f"⚠️ IBKR account data error: {e}")
 
-        # Résumé portfolio (cash = 0 si IBKR déconnecté)
+        # Portfolio summary
         summary = portfolio_manager.get_portfolio_summary(available_cash=available_cash or 0)
 
         # Display main metrics
         st.subheader("📈 Global Summary")
-
-        # Show IBKR error if any
-        if ibkr_error:
-            st.warning(f"⚠️ {ibkr_error}")
 
         col1, col2, col3, col4, col5, col6 = st.columns(6)
 
@@ -827,7 +822,7 @@ def main():
             st.metric(
                 "🏦 Available Capital",
                 f"${available_cash:,.2f}" if available_cash is not None else "N/A",
-                help="TotalCashValue (IBKR)" if ibkr_connected else "IBKR connection required"
+                help="TotalCashValue (IBKR)"
             )
 
         with col2:
@@ -845,18 +840,11 @@ def main():
             )
 
         with col4:
-            if available_cash is not None:
-                st.metric(
-                    "💎 Total Capitalization",
-                    f"${summary['total_capitalization']:,.2f}",
-                    help="Position value + TotalCashValue (IBKR)"
-                )
-            else:
-                st.metric(
-                    "💎 Position Value",
-                    f"${summary['total_value']:,.2f}",
-                    help="Position value only (IBKR disconnected)"
-                )
+            st.metric(
+                "💎 Buying Power",
+                f"${buying_power:,.2f}" if buying_power is not None else "N/A",
+                help="BuyingPower from IBKR account"
+            )
 
         with col5:
             pnl_color = "normal" if summary['total_pnl'] >= 0 else "inverse"
@@ -880,7 +868,7 @@ def main():
         # Capital Allocation (IBKR only — no manual entry)
         st.subheader("📊 Capital Allocation")
 
-        if ibkr_connected and available_cash is not None and summary['total_capitalization'] > 0:
+        if available_cash is not None and summary['total_capitalization'] > 0:
             col1, col2 = st.columns([2, 1])
 
             with col1:
@@ -900,23 +888,13 @@ def main():
                 elif current_profile == "Very Aggressive" and cash_pct > 20:
                     st.info("💡 Very Aggressive profile: You could invest more cash")
         else:
-            st.info(
-                "📡 Capital data comes exclusively from your IBKR account. "
-                "Start TWS or IB Gateway to display allocation.",
-                icon="ℹ️"
-            )
+            st.info("No open positions — allocation will appear once positions are held.", icon="ℹ️")
 
         st.divider()
 
         # Tableau des positions
         if summary['num_positions'] > 0:
             st.subheader("📋 Position Details")
-
-            # Display data source
-            if ibkr_connected:
-                st.info("📡 **Positions loaded from your IBKR account in real-time**", icon="✅")
-            else:
-                st.info("💾 **Positions loaded from local configuration** (portfolio.json file)", icon="📁")
 
             # Get DataFrame with all stats
             df_portfolio = portfolio_manager.calculate_portfolio_stats()
@@ -1009,96 +987,137 @@ def main():
                 **💡 Tip:** Always monitor **Real Gain** for your investment strategy.
                 """)
 
-            st.divider()
-
-            # Add new position
-            st.subheader("➕ Add Position")
-
-            with st.form("add_position_form"):
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    new_symbol = st.text_input("Symbol", placeholder="Ex: AAPL")
-                    new_shares = st.number_input("Number of shares", min_value=1, value=10)
-
-                with col2:
-                    new_price = st.number_input("Purchase price ($)", min_value=0.01, value=100.0, step=0.01)
-                    new_date = st.date_input("Purchase date", value=datetime.now())
-
-                with col3:
-                    new_plan = st.selectbox(
-                        "IBKR Plan",
-                        ["Lite", "Pro Fixed", "Pro Tiered"],
-                        index=0
-                    )
-
-                submit_button = st.form_submit_button("Add Position", use_container_width=True)
-
-                if submit_button:
-                    if new_symbol:
-                        portfolio_manager.add_position(
-                            symbol=new_symbol.upper(),
-                            shares=new_shares,
-                            avg_price=new_price,
-                            date_bought=new_date.strftime("%Y-%m-%d"),
-                            ibkr_plan=new_plan
-                        )
-                        st.success(f"✅ Position {new_symbol.upper()} added successfully!")
-                        st.rerun()
-                    else:
-                        st.error("⚠️ Please enter a symbol")
-
-            st.divider()
-
-            # Remove position
-            st.subheader("🗑️ Remove Position")
-
-            symbols = df_portfolio["Symbole"].tolist()
-            symbol_to_remove = st.selectbox("Select position to remove", symbols)
-
-            if st.button("🗑️ Remove this position", use_container_width=True):
-                portfolio_manager.remove_position(symbol_to_remove)
-                st.success(f"✅ Position {symbol_to_remove} deleted!")
-                st.rerun()
-
         else:
-            st.info("📭 No positions in your portfolio")
-            st.write("Add your first position below:")
+            st.info("📭 No open positions in your IBKR account.", icon="📡")
 
-            # Form for first position
-            with st.form("first_position_form"):
-                col1, col2, col3 = st.columns(3)
+    # ==================== TAB: ACTUALITES ====================
+    elif tab_selection == "📰 Actualités":
+        st.header("📰 Actualités IBKR")
 
-                with col1:
-                    new_symbol = st.text_input("Symbol", placeholder="Ex: AAPL")
-                    new_shares = st.number_input("Number of shares", min_value=1, value=10)
+        ib_client = get_ib_client()
 
-                with col2:
-                    new_price = st.number_input("Purchase price ($)", min_value=0.01, value=100.0, step=0.01)
-                    new_date = st.date_input("Purchase date", value=datetime.now())
+        if ib_client is None or not ib_client.isConnected():
+            st.error("❌ IBKR non connecté — démarrez TWS ou IB Gateway pour accéder aux actualités.")
+            st.info("Port 7497 (TWS paper) ou 7496 (TWS live) — puis redémarrez le dashboard.")
+        else:
+            st.success("✅ Connecté à IBKR", icon="📡")
 
-                with col3:
-                    new_plan = st.selectbox(
-                        "IBKR Plan",
-                        ["Lite", "Pro Fixed", "Pro Tiered"],
-                        index=0
-                    )
+            # --- Controls ---
+            all_parquet_syms = sorted(get_parquet_symbols())
+            symbol_labels    = get_symbol_labels()
 
-                submit_button = st.form_submit_button("Add Position", use_container_width=True)
+            col_sym, col_days, col_btn = st.columns([3, 1, 1])
 
-                if submit_button:
-                    if new_symbol:
-                        portfolio_manager.add_position(
-                            symbol=new_symbol.upper(),
-                            shares=new_shares,
-                            avg_price=new_price,
-                            date_bought=new_date.strftime("%Y-%m-%d"),
-                            ibkr_plan=new_plan
-                        )
-                        st.success(f"✅ Position {new_symbol.upper()} added successfully!")
-                        st.rerun()
+            with col_sym:
+                news_symbol = st.selectbox(
+                    "Symbole",
+                    options=all_parquet_syms,
+                    index=all_parquet_syms.index("AAPL") if "AAPL" in all_parquet_syms else 0,
+                    format_func=lambda s: symbol_labels.get(s, s),
+                    key="news_symbol_select",
+                )
+
+            with col_days:
+                news_days = st.selectbox(
+                    "Période",
+                    options=[7, 14, 30],
+                    format_func=lambda d: f"{d} jours",
+                    key="news_days_select",
+                )
+
+            with col_btn:
+                st.write("")
+                st.write("")
+                load_news = st.button("📰 Charger", use_container_width=True, type="primary")
+
+            # --- Load news ---
+            if load_news:
+                with st.spinner(f"Recherche du contrat {news_symbol}…"):
+                    details = ib_client.get_contract_details(news_symbol)
+
+                if not details:
+                    st.error(f"Contrat « {news_symbol} » introuvable sur IBKR.")
+                else:
+                    con_id = details[0]['con_id']
+
+                    # Discover available providers
+                    with st.spinner("Récupération des fournisseurs de news…"):
+                        providers = ib_client.get_news_providers()
+
+                    if providers:
+                        provider_codes = "+".join(p['code'] for p in providers)
+                        st.caption(f"Fournisseurs disponibles : {', '.join(p['name'] for p in providers)}")
                     else:
-                        st.error("⚠️ Please enter a symbol")
+                        # Fallback — try common providers anyway
+                        provider_codes = "BRFG+DJNL+BRFUPDN"
+                        st.caption("Fournisseurs de news non détectés — tentative avec les codes standards.")
+
+                    # Build date range
+                    end_dt   = ""          # empty = now
+                    start_dt = (datetime.now() - timedelta(days=news_days)).strftime("%Y-%m-%d %H:%M:%S.0")
+
+                    with st.spinner(f"Chargement des actualités ({news_days} derniers jours)…"):
+                        news_items = ib_client.get_historical_news(
+                            con_id, provider_codes, start_dt, end_dt,
+                            total_results=100,
+                        )
+
+                    if news_items:
+                        st.session_state['news_items']   = news_items
+                        st.session_state['news_symbol']  = news_symbol
+                        st.session_state['loaded_articles'] = {}   # reset article cache
+                    else:
+                        st.session_state['news_items']  = []
+                        st.session_state['news_symbol'] = news_symbol
+                        st.warning(
+                            f"Aucune actualité trouvée pour **{news_symbol}** "
+                            f"sur les {news_days} derniers jours.\n\n"
+                            "Cela peut indiquer que votre abonnement IBKR ne couvre pas "
+                            "ce fournisseur de news, ou qu'il n'y a pas eu d'actualités récentes."
+                        )
+
+            # --- Display news ---
+            news_items = st.session_state.get('news_items', [])
+            news_sym   = st.session_state.get('news_symbol', '')
+
+            if news_items:
+                st.divider()
+                st.subheader(f"📋 {len(news_items)} actualité(s) — {news_sym}")
+
+                if 'loaded_articles' not in st.session_state:
+                    st.session_state['loaded_articles'] = {}
+
+                for i, item in enumerate(news_items):
+                    # Parse date for display
+                    raw_time = item['time']
+                    try:
+                        dt_obj   = datetime.strptime(raw_time[:19], "%Y-%m-%d %H:%M:%S")
+                        disp_dt  = dt_obj.strftime("%d/%m/%Y %H:%M")
+                    except Exception:
+                        disp_dt = raw_time[:19]
+
+                    art_key = item['article_id']
+                    header  = f"**{disp_dt}** — {item['headline']}"
+
+                    with st.expander(header, expanded=False):
+                        st.caption(f"Source : {item['provider']}  •  {disp_dt}")
+
+                        if art_key not in st.session_state['loaded_articles']:
+                            if st.button("📖 Lire l'article complet", key=f"art_btn_{i}"):
+                                with st.spinner("Chargement de l'article…"):
+                                    article = ib_client.get_news_article(item['provider'], art_key)
+                                st.session_state['loaded_articles'][art_key] = article
+                                st.rerun()
+                        else:
+                            article = st.session_state['loaded_articles'][art_key]
+                            if article and article.get('text'):
+                                if article['type'] == 0:
+                                    # Text / HTML
+                                    st.markdown(article['text'], unsafe_allow_html=True)
+                                else:
+                                    st.info("Article en format binaire (PDF) — non affichable ici.")
+                            else:
+                                st.warning("Article non disponible (abonnement requis ou contenu vide).")
 
     # ==================== TAB: CONFIGURATION ====================
     elif tab_selection == "⚙️ Configuration":
