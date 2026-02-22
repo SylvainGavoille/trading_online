@@ -491,10 +491,12 @@ def main():
     ib = get_ib_client()   # already cached — no new connection attempt
     if ib is not None and ib.isConnected():
         st.sidebar.success("🟢 IBKR connecté")
-        if ib.reconnect_attempts > 0 and ib.last_reconnect_at:
+        n_rec = getattr(ib, 'reconnect_attempts', 0)
+        last_rec = getattr(ib, 'last_reconnect_at', None)
+        if n_rec > 0 and last_rec:
             st.sidebar.caption(
-                f"Reconnexions : {ib.reconnect_attempts} "
-                f"(dernière : {ib.last_reconnect_at.strftime('%H:%M:%S')})"
+                f"Reconnexions : {n_rec} "
+                f"(dernière : {last_rec.strftime('%H:%M:%S')})"
             )
     else:
         st.sidebar.error("🔴 IBKR déconnecté")
