@@ -48,7 +48,7 @@ Le système est organisé en **5 couches** principales :
 
 ### 3. Système Multi-Agents
 - 4 agents spécialisés qui collaborent
-- Communication via le framework Swarm (OpenAI)
+- Communication via le framework DSPy
 - Chaque agent a un rôle spécifique
 - [Architecture Agents →](./AGENTS_SYSTEM.md)
 
@@ -217,7 +217,7 @@ src/
 │
 ├── trading/                  # Logique de trading
 │   ├── trading_logic.py     # Orchestrateur principal
-│   ├── trading_agents.py    # Système multi-agents (Swarm)
+│   ├── trading_agents.py    # Système multi-agents (DSPy)
 │   │
 │   └── agents/              # Agents spécialisés
 │       ├── agent_manager.py    # Gestionnaire d'agents
@@ -240,7 +240,7 @@ src/
 |-----------|---------|-------------|---------------|
 | **CLI Interface** | `cli/cli_interface.py` | Point d'entrée principal | [→ Détails](./docs/cli_interface.md) |
 | **Trading Logic** | `trading/trading_logic.py` | Orchestrateur central | [→ Détails](./ORCHESTRATOR.md) |
-| **Agent System** | `trading/trading_agents.py` | Coordination multi-agents | [→ Détails](./AGENTS_SYSTEM.md) |
+| **Agent System (DSPy)** | `trading/trading_agents.py` | Coordination multi-agents | [→ Détails](./AGENTS_SYSTEM.md) |
 | **IB Connector** | `api/ib_connector.py` | Communication avec IB | [→ Détails](./docs/ib_connector.md) |
 | **Technical Analysis** | `analysis/technical_analysis.py` | Indicateurs techniques | [→ Détails](./INDICATORS.md) |
 | **Risk Validator** | `trading/agents/risk_validator.py` | Gestion des risques | [→ Détails](./RISK_MANAGEMENT_DETAILED.md) |

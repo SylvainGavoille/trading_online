@@ -1,6 +1,8 @@
 api:
   tws_endpoint: "127.0.0.1"
-  port: 4002  # IB Gateway Paper Trading (4002), TWS Paper (7497)
+  port: 4002       # IB Gateway Paper Trading (4002), TWS Paper (7497)
+  client_id: 10    # Client ID for dashboard (change if conflict with other connections)
+  collector_client_id: 11  # Separate ID used by the options/portfolio collector scripts
 
 # Technical Analysis Configuration
 technical_analysis:
@@ -104,6 +106,36 @@ fees:
   #   - Volume-based rates (0.0035 to 0.0015 per share)
   #   - Rebates for adding liquidity
   #   - Best for: high frequency, algo trading, high volume
+
+# Options Snapshot Collector
+# Controls src/data/collect_options_snapshot.py (runs at market close daily).
+options_collector:
+  top_n_symbols: 50          # top-N symbols by daily volume from price_historical
+  min_price_filter: 5.0      # skip stocks with close < $5 (penny stocks have no listed options)
+  dte_min: 7                 # minimum days to expiry
+  dte_max: 90                # maximum days to expiry
+  moneyness_range_pct: 0.20  # keep strikes within ±20% of spot price
+  max_expirations: 3         # nearest N expiration dates per symbol
+  batch_size: 20             # option snapshot requests sent concurrently
+  batch_delay_s: 1.0         # seconds to wait between batches (IBKR pacing)
+
+# ML Options Optimizer
+# Controls the ILP (PuLP) / greedy trade selection layer in src/ml/pipeline.py.
+# Budget percentages (max_premium_spend_pct_bp, max_margin_add_pct_bp) are
+# shared with BacktestConfig in src/ml/config.py — edit there for per-trade caps.
+ml_optimizer:
+  prefer_ilp: true           # true = use PuLP ILP solver; false = greedy fallback
+  max_trades_per_symbol: 1   # max contracts per underlying per trading day
+
+  long_premium:
+    # Greek caps: set a positive float to cap cumulative delta/vega of selected trades.
+    # null (or omit) means uncapped.
+    max_abs_portfolio_delta: ~   # e.g. 2000.0
+    max_abs_portfolio_vega: ~    # e.g. 5000.0
+
+  short_premium:
+    max_abs_portfolio_delta: ~
+    max_abs_portfolio_vega: ~
 
 # Monitoring Configuration
 monitoring:

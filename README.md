@@ -1,42 +1,38 @@
 # Trading Online - Quantum Trader
 
-Système de trading algorithmique intelligent utilisant une architecture multi-agents pour le trading via Interactive Brokers.
+Système de trading algorithmique intelligent utilisant une architecture multi-agents DSPy pour le trading via Interactive Brokers.
 
 ## Vue d'ensemble
 
-Ce projet intègre **Quantum Trader**, un système sophistiqué qui utilise plusieurs agents spécialisés pour analyser les marchés, gérer les risques et exécuter des trades automatiquement.
+**Quantum Trader** est un système sophistiqué qui utilise 4 agents spécialisés DSPy pour analyser les marchés, gérer les risques et exécuter des trades automatiquement.
 
-## 🎯 Deux Versions Disponibles
+## 🚀 Version Unique - Multi-LLM avec DSPy
 
-### 1. **LITE** - 0$ en frais API ⚡
-- **Fichier** : `run_trader_lite.py`
-- **Technologie** : Python pur uniquement
-- **Coût** : **0$ en frais API**
-- **Performance** : 95% identique à la version FULL
-- **Usage** : Analyse technique complète sans agents LLM
-- **Idéal pour** : Développement, apprentissage, trading purement technique
-- 📖 [Guide détaillé LITE vs FULL](LITE_VS_FULL.md)
-
-### 2. **FULL** - Multi-LLM avec DSPy 🤖 (Recommandée pour production)
 - **Fichier** : `run_trader.py`
 - **Technologie** : DSPy framework (multi-LLM)
-- **Coût** : Variable selon le provider
-  - **Ollama (local)** : 0$ API
-  - **OpenAI gpt-4o-mini** : ~$3-5/jour
-  - **Anthropic Claude** : ~$2-24/jour
-- **Performance** : Optimisation automatique des prompts, analyse de sentiment
-- **Support** : OpenAI, Anthropic, Ollama (modèles locaux)
-- **Idéal pour** : Production, analyse complète (technique + sentiment)
-- 📖 [Guide Multi-LLM complet](MULTI_LLM_GUIDE.md)
+- **Coût** : **0$ avec Ollama** (recommandé) ou variable selon le provider
+- **Performance** : Optimisation automatique des prompts, analyse technique + sentiment
 
-### Architecture Multi-Agents (Version FULL)
+### 💰 Options de LLM
+
+| Provider | Modèle | Coût/jour | Usage |
+|----------|--------|-----------|-------|
+| **Ollama** ⭐ | deepseek-r1:14b | **0$** | **Recommandé** - Local, gratuit, performant |
+| OpenAI | gpt-4o-mini | ~$3-5 | Cloud, rapide |
+| Anthropic | claude-3-5-sonnet | ~$24 | Cloud, meilleure qualité |
+
+**Par défaut** : Ollama avec DeepSeek-R1 (modèle de raisonnement local, 0$ API)
+
+📖 [Guide Multi-LLM complet](docs/MULTI_LLM_GUIDE.md)
+
+## 🤖 Architecture Multi-Agents
+
+Powered by **DSPy** - Framework avec optimisation automatique des prompts
 
 1. **Agent d'Analyse Technique** - Indicateurs : SMA, EMA, RSI, MACD, Bollinger Bands
-2. **Agent d'Analyse de Sentiment** - Analyse des news et réseaux sociaux (LLM)
+2. **Agent d'Analyse de Sentiment** - Analyse des news et réseaux sociaux
 3. **Agent de Gestion des Risques** - Limites de position, stop-loss, ratio risk/reward
 4. **Agent d'Exécution** - Ordres market/limit, gestion du slippage
-
-**Powered by DSPy** : Support pour multiples LLMs (OpenAI, Anthropic, Ollama)
 
 ## Installation
 
@@ -51,104 +47,103 @@ uv sync
 
 - **Python 3.10+**
 - **Interactive Brokers Gateway ou TWS** doit être lancé
+- **Ollama installé** (pour utilisation gratuite) : https://ollama.ai
 - **Configuration actuelle détectée** :
   - Port : **4002** (IB Gateway Paper Trading)
   - Compte : **DUQ068078**
 - **API activée** : Configuration → API → Settings → Enable ActiveX and Socket Clients
 - Pour trader : désactiver "Read-Only API" dans les paramètres
 
-## 📊 Comparaison Rapide
+## 🚀 Démarrage Rapide
 
-| Critère | LITE ⚡ | FULL (Multi-LLM) 🤖 |
-|---------|--------|---------------------|
-| **Coût API/jour** | **0$** | 0$ - 24$ (selon LLM) |
-| **Clé API requise** | ❌ Non | ✅ Oui* |
-| **LLM supportés** | Aucun | OpenAI, Anthropic, Ollama |
-| **Analyse technique** | ✅ Python pur | ✅ LLM + optimisation |
-| **Analyse sentiment** | ❌ Non | ✅ Oui |
-| **Optimisation auto** | ❌ Non | ✅ Oui (DSPy) |
-| **Performance** | 95% | 100%+ |
-| **Recommandé pour** | Développement, apprentissage | Production, analyse complète |
+### 1. Installer Ollama (recommandé - 0$ API)
 
-\* *Sauf avec Ollama (modèles locaux gratuits) = 0$*
+```bash
+# Windows / macOS : https://ollama.ai
+# Linux :
+curl -fsSL https://ollama.ai/install.sh | sh
 
-**Recommandation** :
-- **Développement** : LITE (0$ de coût) ou FULL avec Ollama (0$ de coût)
-- **Production** : FULL avec OpenAI gpt-4o-mini (~$3-5/jour) ou Claude (~$2-24/jour)
+# Télécharger DeepSeek-R1 (14B)
+ollama pull deepseek-r1:14b
+```
 
-## Utilisation
-
-### 1. Tester la connexion
+### 2. Tester la connexion IB
 
 ```bash
 uv run test_connection.py
 ```
 
-### 2. Diagnostiquer les problèmes de connexion
+### 3. Lancer Quantum Trader
 
 ```bash
-uv run diagnose_connection.py
-```
-
-### 3. Lancer le système Quantum Trader
-
-#### Version LITE (0$ API) ⚡
-
-```bash
-# Mode paper trading
-uv run python run_trader_lite.py --symbols AAPL MSFT --mode paper
+# Mode paper trading (recommandé)
+# Utilise automatiquement Ollama + DeepSeek-R1 par défaut
+uv run python run_trader.py --symbols AAPL MSFT --mode paper
 
 # Mode live trading (ATTENTION : trades réels !)
-uv run python run_trader_lite.py --symbols AAPL --mode live
+uv run python run_trader.py --symbols AAPL --mode live
 ```
 
-**Avantages** : Aucune clé API requise, 0$ de coût, 95% des performances
+## 📊 Dashboard Interactif (Nouveau !)
 
-#### Version FULL - Multi-LLM (Recommandée pour production) 🤖
+**Interface web Streamlit** pour analyser les actions avec l'IA :
 
 ```bash
-# Option 1: Avec OpenAI
+# Lancer le dashboard web
+./run_dashboard.sh      # Linux/macOS
+run_dashboard.bat       # Windows
+
+# Ou directement
+cd dashboard
+uv run streamlit run dashboard_app.py
+```
+
+**Fonctionnalités** :
+- 🔍 **Recherche dynamique** - 60,000+ instruments via Yahoo Finance
+- 📈 **Graphiques interactifs** - Chandeliers avec zoom et curseur
+- 📊 **Multi-périodes** - 1j, 5j, 1m, 6m, 1an, 5ans, 10ans
+- 📉 **Statistiques détaillées** - Min, max, moyenne, volatilité
+- 🤖 **Analyse IA** - Génération d'insights automatiques
+- 💰 **0$ avec Ollama** - Fonctionne en local
+
+📖 [Guide complet du Dashboard](dashboard/README.md)
+
+---
+
+## 💡 Options Avancées
+
+### Option 1 : Ollama (Par défaut - 0$ API)
+
+```bash
+# Utilise DeepSeek-R1 par défaut
+uv run python run_trader.py --symbols AAPL MSFT --mode paper
+
+# Ou spécifier explicitement
+uv run python run_trader.py --symbols AAPL MSFT --llm ollama --model deepseek-r1:14b --mode paper
+
+# Autres modèles Ollama
+uv run python run_trader.py --symbols AAPL --llm ollama --model llama3:8b --mode paper
+```
+
+### Option 2 : OpenAI
+
+```bash
 export OPENAI_API_KEY=sk-...
 uv run python run_trader.py --symbols AAPL MSFT --llm openai --model gpt-4o-mini --mode paper
+```
 
-# Option 2: Avec Anthropic Claude
+### Option 3 : Anthropic Claude
+
+```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 uv run python run_trader.py --symbols AAPL --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
-
-# Option 3: Avec Ollama (modèle local - 0$ API)
-uv run python run_trader.py --symbols AAPL --llm ollama --model llama3 --mode paper
-
-# Mode live trading (ATTENTION : trades réels !)
-uv run python run_trader.py --symbols AAPL --llm openai --model gpt-4o-mini --mode live
 ```
 
-**Avantages** :
-- Choix du provider LLM (OpenAI, Anthropic, Ollama)
-- Optimisation automatique des prompts (DSPy)
-- Analyse de sentiment (news + social media)
-- Compilation pour réduire les coûts
-- Fine-tuning possible
+## 📖 Configuration de la clé API
 
-### 4. Configuration de la clé API (Version FULL uniquement)
+Pour OpenAI ou Anthropic : [Guide de configuration API](docs/SETUP_API_KEY.md)
 
-📖 [Guide de configuration API](SETUP_API_KEY.md)
-
-```bash
-# Tester votre clé OpenAI
-uv run python test_openai_key.py
-```
-
-**Note** : La version LITE ne nécessite aucune clé API.
-
-### 5. Programme de formation
-
-Un système de formation interactif est disponible :
-
-```bash
-cd training
-python server.py
-# Ouvrir http://localhost:7555 dans votre navigateur
-```
+**Note** : Ollama ne nécessite aucune clé API (modèle local).
 
 ## Configuration
 
@@ -158,6 +153,7 @@ Modifiez `src/config/config.yaml` pour ajuster :
 - **Gestion des risques** : limites de position, stop-loss, drawdown
 - **Analyse technique** : périodes des indicateurs, seuils
 - **Exécution** : type d'ordres, slippage toléré
+- **Frais IBKR** : Choix du plan (Lite, Pro Fixed, Pro Tiered)
 
 **Configuration actuelle** : Port 4002 (IB Gateway Paper Trading)
 
@@ -170,13 +166,21 @@ trading_online/
 │   ├── analysis/              # Analyse technique et qualitative
 │   ├── cli/                   # Interface ligne de commande
 │   ├── config/                # Fichiers de configuration
-│   └── trading/               # Logique de trading et agents
+│   ├── data/                  # Données et recherche dynamique
+│   ├── agents/                # Agents de recherche
+│   └── trading/               # Logique de trading et agents DSPy
+├── dashboard/                  # 📊 Dashboard Streamlit (NOUVEAU)
+│   ├── dashboard_app.py       # Application Streamlit
+│   ├── test_dashboard.py      # Tests
+│   ├── .streamlit/            # Configuration Streamlit
+│   └── docs/                  # Documentation dashboard
 ├── docs/                       # Documentation détaillée
 ├── tests/                      # Tests unitaires
 ├── training/                   # Système de formation
 ├── test_connection.py         # Test de connexion simple
 ├── diagnose_connection.py     # Diagnostic complet
-└── run_trader.py             # Script principal
+├── run_trader.py              # Script principal trading
+└── run_dashboard.sh/bat       # Scripts de lancement dashboard
 
 ```
 
@@ -184,9 +188,9 @@ trading_online/
 
 ### Guides de Démarrage
 
-- 📖 **[LITE vs FULL - Comparaison des versions](LITE_VS_FULL.md)** - Choisir la bonne version
-- 📖 **[Guide Multi-LLM](MULTI_LLM_GUIDE.md)** - Utilisation avec OpenAI, Anthropic, Ollama
-- 📖 **[Configuration API](SETUP_API_KEY.md)** - Setup clés API pour version FULL
+- 📖 **[Guide Multi-LLM](docs/MULTI_LLM_GUIDE.md)** - Utilisation avec OpenAI, Anthropic, Ollama
+- 📖 **[Configuration API](docs/SETUP_API_KEY.md)** - Setup clés API (si OpenAI/Anthropic)
+- 📖 **[Guide des Frais IBKR](docs/IBKR_PLANS_GUIDE.md)** - Choisir votre plan IBKR
 - 📖 **[Index de la documentation complète](docs/INDEX_DOCS.md)** - Toute la documentation
 
 ### Documentation Technique Détaillée
@@ -207,6 +211,16 @@ trading_online/
 - [Sentiment Analysis](docs/sentiment_analysis.md)
 - [Risk Management](docs/risk_management.md)
 
+## Diagnostics
+
+```bash
+# Test de connexion IB
+uv run python test_connection.py
+
+# Diagnostic complet
+uv run python diagnose_connection.py
+```
+
 ## Tests
 
 ```bash
@@ -216,20 +230,75 @@ uv run python -m unittest discover tests
 ## Dépendances principales
 
 - `ib_insync` - Interface Interactive Brokers
+- `dspy-ai` - Framework multi-LLM avec optimisation automatique
 - `pandas`, `numpy` - Analyse de données
 - `pyyaml` - Configuration
 - `textblob` - Analyse de sentiment
 
-### Par version :
-- **LITE** : Aucune dépendance LLM (Python pur)
-- **FULL** : `dspy-ai` - Framework multi-LLM (OpenAI, Anthropic, Ollama)
+## 🎓 Programme de formation
 
-## Sécurité
+Un système de formation interactif est disponible :
+
+```bash
+cd training
+python server.py
+# Ouvrir http://localhost:7555 dans votre navigateur
+```
+
+## ✅ Recommandations
+
+### Pour Débutants
+
+```bash
+# 1. Installer Ollama (gratuit)
+# https://ollama.ai
+
+# 2. Télécharger DeepSeek-R1
+ollama pull deepseek-r1:14b
+
+# 3. Tester en paper trading
+uv run python run_trader.py --symbols AAPL --mode paper --cycles 1
+```
+
+**Coût** : 0$ API ✅
+
+### Pour Production
+
+**Option A - Économique (0$)** :
+```bash
+# Ollama + DeepSeek-R1 (local, gratuit)
+uv run python run_trader.py --symbols AAPL MSFT GOOGL --mode paper
+```
+
+**Option B - Cloud** :
+```bash
+# OpenAI gpt-4o-mini (~$3-5/jour)
+uv run python run_trader.py --symbols AAPL MSFT --llm openai --model gpt-4o-mini --mode paper
+```
+
+**Option C - Qualité Max** :
+```bash
+# Anthropic Claude (~$24/jour)
+uv run python run_trader.py --symbols AAPL MSFT --llm anthropic --model claude-3-5-sonnet-20241022 --mode paper
+```
+
+## 🛡️ Sécurité
 
 - Commencez TOUJOURS en mode **paper trading**
-- Testez vos stratégies pendant plusieurs semaines
+- Testez vos stratégies pendant plusieurs semaines minimum
 - Configurez des limites de risque strictes
 - Ne tradez jamais plus que ce que vous pouvez vous permettre de perdre
+- Utilisez le kill switch en cas d'urgence
+
+## 💡 Pourquoi Ollama + DeepSeek-R1 ?
+
+- ✅ **0$ de coût API** - Complètement gratuit
+- ✅ **Local** - Aucune donnée envoyée au cloud
+- ✅ **Performant** - Modèle de raisonnement 14B paramètres
+- ✅ **Pas de limite** - Utilisez autant que vous voulez
+- ✅ **Rapide** - Avec GPU : ~30-50 tokens/sec
+
+**Alternative cloud** : OpenAI gpt-4o-mini si vous préférez le cloud (~$3-5/jour)
 
 ## Licence
 

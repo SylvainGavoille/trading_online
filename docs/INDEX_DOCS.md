@@ -50,6 +50,13 @@ Pour les nouveaux utilisateurs :
    - Vérifie la configuration
    - Guide les prochaines étapes
 
+4. **[dashboard_app.py](./dashboard_app.py)** ⭐ **NOUVEAU - Dashboard Interactif**
+   - Interface web Streamlit
+   - Analyse d'actions avec IA
+   - Graphiques interactifs
+   - Multi-périodes (1j à 10ans)
+   - 📖 [Guide du Dashboard](./DASHBOARD_GUIDE.md)
+
 ---
 
 ## 📚 Documentation Principale
@@ -330,7 +337,7 @@ Tous les documents utilisent des diagrammes Mermaid pour visualiser :
 ### Documentation Externe
 
 - [Interactive Brokers API](https://interactivebrokers.github.io/)
-- [OpenAI Swarm](https://github.com/openai/swarm)
+- [DSPy Documentation](https://dspy-docs.vercel.app/)
 - [ib_insync Docs](https://ib-insync.readthedocs.io/)
 
 ### Fichiers de Référence
@@ -346,7 +353,7 @@ Tous les documents utilisent des diagrammes Mermaid pour visualiser :
 | Terme | Définition |
 |-------|------------|
 | **Agent** | Programme autonome spécialisé dans une tâche |
-| **Swarm** | Système de coordination d'agents (OpenAI) |
+| **DSPy** | Framework multi-agents avec optimisation automatique |
 | **RSI** | Indicateur de surachat/survente (0-100) |
 | **MACD** | Indicateur de momentum et tendance |
 | **ATR** | Average True Range - mesure de volatilité |

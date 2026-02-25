@@ -77,7 +77,7 @@ sequenceDiagram
 
 3. **Initialisation composants**
    - `IBClient` : Connexion Interactive Brokers
-   - `TradingSwarm` : Système multi-agents
+   - `TradingSystemDSPy` : Système multi-agents
    - `RiskValidator` : Validateur de risques
    - `TradeExecutor` : Exécuteur d'ordres
 

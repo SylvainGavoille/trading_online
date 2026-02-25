@@ -4,7 +4,7 @@
 
 ## Vue d'ensemble
 
-Le système Quantum Trader utilise une **architecture multi-agents** basée sur le framework **Swarm** d'OpenAI. Quatre agents spécialisés collaborent pour analyser, décider et exécuter des trades.
+Le système Quantum Trader utilise une **architecture multi-agents** basée sur le framework **DSPy**. Quatre agents spécialisés collaborent pour analyser, décider et exécuter des trades.
 
 ```mermaid
 graph TB
@@ -315,7 +315,7 @@ execution:
 
 ## Communication Inter-Agents
 
-Les agents communiquent via le framework **Swarm** :
+Les agents communiquent via le framework **DSPy** :
 
 ```mermaid
 sequenceDiagram
@@ -416,7 +416,7 @@ graph TD
 | `src/trading/agents/risk_validator.py` | Validation des risques |
 | `src/trading/agents/trade_executor.py` | Exécution des ordres |
 | `src/trading/agents/response_parser.py` | Parsing des réponses agents |
-| `src/trading/trading_agents.py` | Système Swarm complet |
+| `src/trading/trading_agents.py` | Système DSPy complet |
 
 ## Configuration Complète
 

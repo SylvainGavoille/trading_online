@@ -25,18 +25,22 @@ class PortfolioManager:
         "Lite": {
             "stock": 0.0,  # 0$ commission (mais routing fees possibles)
             "min_per_order": 0.0,
-            "max_per_order": 0.0
+            "max_per_order": 0.0,
         },
         "Pro Fixed": {
             "stock": 0.005,  # $0.005 par action
             "min_per_order": 1.0,  # Minimum $1
-            "max_per_order": lambda shares, price: min(shares * 0.005, 0.01 * shares * price)  # Max 1% de la valeur
+            "max_per_order": lambda shares, price: min(
+                shares * 0.005, 0.01 * shares * price
+            ),  # Max 1% de la valeur
         },
         "Pro Tiered": {
-            "stock": lambda shares: 0.0035 if shares <= 10000 else (0.0020 if shares <= 20000 else 0.0015),
+            "stock": lambda shares: (
+                0.0035 if shares <= 10000 else (0.0020 if shares <= 20000 else 0.0015)
+            ),
             "min_per_order": 0.35,
-            "max_per_order": lambda shares, price: 0.01 * shares * price  # Max 1%
-        }
+            "max_per_order": lambda shares, price: 0.01 * shares * price,  # Max 1%
+        },
     }
 
     def __init__(self, portfolio_file: str = "portfolio.json", use_ibkr: bool = True):
@@ -53,70 +57,57 @@ class PortfolioManager:
 
     def load_portfolio(self) -> List[Dict]:
         """
-        Charge le portfolio depuis IBKR si disponible, sinon depuis le fichier JSON
+        Charge le portfolio depuis IBKR uniquement.
 
         Returns:
-            Liste des positions
+            Liste des positions (vide si compte IBKR sans positions)
         """
-        # Essayer d'abord de charger depuis IBKR si disponible
         if self.use_ibkr and _ib_client is not None:
-            try:
-                ibkr_positions = self._load_from_ibkr()
-                if ibkr_positions:
-                    print(f"✅ Portfolio chargé depuis IBKR: {len(ibkr_positions)} positions")
-                    return ibkr_positions
-            except Exception as e:
-                print(f"⚠️ Erreur lors du chargement depuis IBKR: {e}")
-                print("Fallback sur le fichier JSON...")
-
-        # Fallback sur le fichier JSON
-        if os.path.exists(self.portfolio_file):
-            try:
-                with open(self.portfolio_file, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Erreur lors du chargement du portfolio: {e}")
-                return []
+            result = self._load_from_ibkr()
+            if result is not None:
+                print(f"✅ Portfolio chargé depuis IBKR: {len(result)} positions")
+                return result
         return []
 
-    def _load_from_ibkr(self) -> List[Dict]:
+    def _load_from_ibkr(self) -> Optional[List[Dict]]:
         """
-        Charge les positions depuis IBKR API
+        Charge les positions depuis IBKR API.
 
         Returns:
-            Liste des positions au format standard
+            Liste des positions, [] si compte sans positions, None si erreur
         """
         if _ib_client is None:
-            return []
+            return None
 
-        # Récupérer les positions depuis IBKR
-        ibkr_positions = _ib_client.get_account_positions(timeout=10.0)
+        try:
+            ibkr_positions = _ib_client.get_account_positions(timeout=10.0)
 
-        if not ibkr_positions:
-            return []
+            if not ibkr_positions:
+                return []  # Compte valide mais sans positions ouvertes
 
-        positions = []
-        for symbol, pos_info in ibkr_positions.items():
-            # Ignorer les positions courtes ou fermées
-            if pos_info['position'] <= 0:
-                continue
-
-            position = {
-                "symbol": symbol,
-                "shares": int(pos_info['position']),
-                "avg_price": float(pos_info['avg_cost']),
-                "date_bought": datetime.now().strftime("%Y-%m-%d"),  # Date inconnue depuis IBKR
-                "ibkr_plan": "Lite",  # Par défaut, peut être configuré
-                "from_ibkr": True  # Marqueur pour indiquer la source
-            }
-            positions.append(position)
-
-        return positions
+            positions = []
+            for symbol, pos_info in ibkr_positions.items():
+                if pos_info["position"] <= 0:
+                    continue
+                positions.append(
+                    {
+                        "symbol": symbol,
+                        "shares": int(pos_info["position"]),
+                        "avg_price": float(pos_info["avg_cost"]),
+                        "date_bought": datetime.now().strftime("%Y-%m-%d"),
+                        "ibkr_plan": "Lite",
+                        "from_ibkr": True,
+                    }
+                )
+            return positions
+        except Exception as e:
+            print(f"⚠️ Erreur lors du chargement depuis IBKR: {e}")
+            return None
 
     def save_portfolio(self):
         """Sauvegarde le portfolio dans le fichier JSON"""
         try:
-            with open(self.portfolio_file, 'w') as f:
+            with open(self.portfolio_file, "w") as f:
                 json.dump(self.positions, f, indent=2)
         except Exception as e:
             print(f"Erreur lors de la sauvegarde du portfolio: {e}")
@@ -127,7 +118,7 @@ class PortfolioManager:
         shares: int,
         avg_price: float,
         date_bought: str,
-        ibkr_plan: str = "Lite"
+        ibkr_plan: str = "Lite",
     ):
         """
         Ajoute une position au portfolio
@@ -144,7 +135,7 @@ class PortfolioManager:
             "shares": shares,
             "avg_price": avg_price,
             "date_bought": date_bought,
-            "ibkr_plan": ibkr_plan
+            "ibkr_plan": ibkr_plan,
         }
         self.positions.append(position)
         self.save_portfolio()
@@ -154,7 +145,9 @@ class PortfolioManager:
         self.positions = [p for p in self.positions if p["symbol"] != symbol]
         self.save_portfolio()
 
-    def calculate_fees(self, shares: int, price: float, plan: str, is_buy: bool = True) -> float:
+    def calculate_fees(
+        self, shares: int, price: float, plan: str, is_buy: bool = True
+    ) -> float:
         """
         Calcule les frais de transaction IBKR
 
@@ -205,18 +198,19 @@ class PortfolioManager:
         from datetime import date, timedelta
 
         prices = {}
-        end_d   = date.today() - timedelta(days=1)
+        end_d = date.today() - timedelta(days=1)
         start_d = end_d - timedelta(days=7)
 
-        parquet_root = os.path.join(os.path.dirname(__file__), '..', 'price_historical')
+        parquet_root = os.path.join(os.path.dirname(__file__), "..", "price_historical")
 
         for position in self.positions:
-            symbol   = position["symbol"]
+            symbol = position["symbol"]
             fallback = position["avg_price"]
 
             # --- Parquet (fiable, EOD) ---
             try:
                 from src.data.download_history import parquet_path as _parquet_path
+
                 frames = []
                 day = start_d
                 while day <= end_d:
@@ -226,9 +220,9 @@ class PortfolioManager:
                     day += timedelta(days=1)
                 if frames:
                     df_p = pd.concat(frames, ignore_index=True)
-                    df_p['date'] = pd.to_datetime(df_p['date'])
-                    df_p = df_p.sort_values('date')
-                    prices[symbol] = float(df_p['close'].iloc[-1])
+                    df_p["date"] = pd.to_datetime(df_p["date"])
+                    df_p = df_p.sort_values("date")
+                    prices[symbol] = float(df_p["close"].iloc[-1])
                     continue
             except Exception as e:
                 print(f"Parquet prix manquant pour {symbol}: {e}")
@@ -284,22 +278,24 @@ class PortfolioManager:
             # % gain réel (après frais)
             real_gain_pct = (net_pnl / cost_basis) * 100
 
-            data.append({
-                "Symbole": symbol,
-                "Actions": shares,
-                "Prix Achat": avg_price,
-                "Prix Actuel": current_price,
-                "Valeur Investie": cost_basis,
-                "Valeur Actuelle": current_value,
-                "Frais Achat": buy_fees,
-                "Frais Vente (est.)": sell_fees,
-                "Frais Totaux": total_fees,
-                "Plus-Value ($)": net_pnl,
-                "Gain IBKR (%)": ibkr_gain_pct,
-                "Gain Réel (%)": real_gain_pct,
-                "Plan IBKR": plan,
-                "Date Achat": position["date_bought"]
-            })
+            data.append(
+                {
+                    "Symbole": symbol,
+                    "Actions": shares,
+                    "Prix Achat": avg_price,
+                    "Prix Actuel": current_price,
+                    "Valeur Investie": cost_basis,
+                    "Valeur Actuelle": current_value,
+                    "Frais Achat": buy_fees,
+                    "Frais Vente (est.)": sell_fees,
+                    "Frais Totaux": total_fees,
+                    "Plus-Value ($)": net_pnl,
+                    "Gain IBKR (%)": ibkr_gain_pct,
+                    "Gain Réel (%)": real_gain_pct,
+                    "Plan IBKR": plan,
+                    "Date Achat": position["date_bought"],
+                }
+            )
 
         df = pd.DataFrame(data)
 
@@ -321,7 +317,7 @@ class PortfolioManager:
         try:
             account_summary = _ib_client.get_account_summary(timeout=10.0)
             # TotalCashValue = cash total du compte
-            cash = account_summary.get('TotalCashValue')
+            cash = account_summary.get("TotalCashValue")
             if cash is not None:
                 print(f"✅ Cash IBKR récupéré: ${cash:,.2f}")
                 return float(cash)
@@ -349,7 +345,7 @@ class PortfolioManager:
                 "total_gain_pct": 0,
                 "num_positions": 0,
                 "available_cash": available_cash,
-                "total_capitalization": available_cash
+                "total_capitalization": available_cash,
             }
 
         df = self.calculate_portfolio_stats()
@@ -367,10 +363,12 @@ class PortfolioManager:
             "total_value": total_value,
             "total_pnl": total_pnl,
             "total_fees": total_fees,
-            "total_gain_pct": (total_pnl / total_invested * 100) if total_invested > 0 else 0,
+            "total_gain_pct": (
+                (total_pnl / total_invested * 100) if total_invested > 0 else 0
+            ),
             "num_positions": len(df),
             "available_cash": available_cash,
-            "total_capitalization": total_capitalization
+            "total_capitalization": total_capitalization,
         }
 
 
@@ -385,22 +383,22 @@ def create_sample_portfolio():
             "shares": 10,
             "avg_price": 150.00,
             "date_bought": "2024-01-15",
-            "ibkr_plan": "Lite"
+            "ibkr_plan": "Lite",
         },
         {
             "symbol": "MSFT",
             "shares": 5,
             "avg_price": 350.00,
             "date_bought": "2024-02-20",
-            "ibkr_plan": "Pro Fixed"
+            "ibkr_plan": "Pro Fixed",
         },
         {
             "symbol": "GOOGL",
             "shares": 8,
             "avg_price": 140.00,
             "date_bought": "2024-03-10",
-            "ibkr_plan": "Lite"
-        }
+            "ibkr_plan": "Lite",
+        },
     ]
 
     for pos in sample_positions:

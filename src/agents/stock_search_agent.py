@@ -16,7 +16,7 @@ from typing import List
 
 import dspy
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from src.data.dynamic_stocks import search_by_keywords
 
@@ -24,6 +24,7 @@ from src.data.dynamic_stocks import search_by_keywords
 # ---------------------------------------------------------------------------
 # Outil ReAct — SQLite uniquement
 # ---------------------------------------------------------------------------
+
 
 def sqlite_symbol_search(query: str) -> str:
     """
@@ -39,10 +40,10 @@ def sqlite_symbol_search(query: str) -> str:
 
         lines = [f"Resultats pour '{query}' ({len(results)} trouves) :"]
         for r in results:
-            exch = r.get('exchange') or '—'
-            typ  = r.get('type') or '—'
-            ind  = r.get('industry') or r.get('sector') or ''
-            detail = f" | {ind}" if ind and ind not in ('Unknown', 'N/A') else ''
+            exch = r.get("exchange") or "—"
+            typ = r.get("type") or "—"
+            ind = r.get("industry") or r.get("sector") or ""
+            detail = f" | {ind}" if ind and ind not in ("Unknown", "N/A") else ""
             lines.append(f"  {r['symbol']} | {r['name']} | {typ} | {exch}{detail}")
         return "\n".join(lines)
     except Exception as exc:
@@ -52,6 +53,7 @@ def sqlite_symbol_search(query: str) -> str:
 # ---------------------------------------------------------------------------
 # Signature DSPy
 # ---------------------------------------------------------------------------
+
 
 class StockSuggestionSignature(dspy.Signature):
     """
@@ -93,6 +95,7 @@ class StockSuggestionSignature(dspy.Signature):
 # Agent principal
 # ---------------------------------------------------------------------------
 
+
 class StockSearchAgent(dspy.Module):
     """
     Agent ReAct de recherche d'instruments financiers via SQLite exclusivement.
@@ -106,7 +109,9 @@ class StockSearchAgent(dspy.Module):
             max_iters=5,
         )
 
-    def forward(self, user_query: str, max_results: int = 10, parquet_symbols: set = None):
+    def forward(
+        self, user_query: str, max_results: int = 10, parquet_symbols: set = None
+    ):
         """
         Recherche et selectionne les instruments les plus pertinents.
 
@@ -131,7 +136,7 @@ class StockSearchAgent(dspy.Module):
 
         # Filtrer aux symboles ayant des donnees Parquet
         if parquet_symbols:
-            raw_results = [r for r in raw_results if r['symbol'] in parquet_symbols]
+            raw_results = [r for r in raw_results if r["symbol"] in parquet_symbols]
 
         # Limiter le contexte LLM a 50 candidats (eviter de depasser la fenetre)
         candidates = raw_results[:50]
@@ -139,8 +144,7 @@ class StockSearchAgent(dspy.Module):
         # Formater la liste de candidats pour le contexte LLM
         if candidates:
             lines = [
-                f"{r['symbol']}|{r['name']}|{r.get('type', '')}"
-                for r in candidates
+                f"{r['symbol']}|{r['name']}|{r.get('type', '')}" for r in candidates
             ]
             available_str = "\n".join(lines)
         else:
@@ -154,6 +158,7 @@ class StockSearchAgent(dspy.Module):
 # Parser
 # ---------------------------------------------------------------------------
 
+
 def parse_stock_suggestions(selected_stocks_text: str) -> List[dict]:
     """
     Parse la sortie de l'agent au format SYMBOLE|NOM|DESCRIPTION.
@@ -162,29 +167,34 @@ def parse_stock_suggestions(selected_stocks_text: str) -> List[dict]:
         Liste de dicts {symbol, name, description}
     """
     stocks = []
-    for line in selected_stocks_text.strip().split('\n'):
+    for line in selected_stocks_text.strip().split("\n"):
         line = line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
-        parts = line.split('|')
+        parts = line.split("|")
         if len(parts) >= 3:
-            stocks.append({
-                'symbol': parts[0].strip(),
-                'name':   parts[1].strip(),
-                'description': parts[2].strip(),
-            })
+            stocks.append(
+                {
+                    "symbol": parts[0].strip(),
+                    "name": parts[1].strip(),
+                    "description": parts[2].strip(),
+                }
+            )
         elif len(parts) == 2:
-            stocks.append({
-                'symbol': parts[0].strip(),
-                'name':   parts[1].strip(),
-                'description': '',
-            })
+            stocks.append(
+                {
+                    "symbol": parts[0].strip(),
+                    "name": parts[1].strip(),
+                    "description": "",
+                }
+            )
     return stocks
 
 
 # ---------------------------------------------------------------------------
 # Helpers de filtrage
 # ---------------------------------------------------------------------------
+
 
 def _query_words(query: str) -> list[str]:
     """Retourne les mots significatifs (>=2 chars) de la requete, en minuscules."""
@@ -198,20 +208,26 @@ def _matches_query_words(result: dict, words: list[str]) -> bool:
     """
     if not words:
         return True
-    text = ' '.join(filter(None, [
-        result.get('symbol', ''),
-        result.get('name', ''),
-        result.get('description', ''),
-        result.get('sector', ''),
-        result.get('industry', ''),
-        result.get('type', ''),
-    ])).lower()
+    text = " ".join(
+        filter(
+            None,
+            [
+                result.get("symbol", ""),
+                result.get("name", ""),
+                result.get("description", ""),
+                result.get("sector", ""),
+                result.get("industry", ""),
+                result.get("type", ""),
+            ],
+        )
+    ).lower()
     return any(word in text for word in words)
 
 
 # ---------------------------------------------------------------------------
 # Fallback sans LLM
 # ---------------------------------------------------------------------------
+
 
 def simple_stock_search(
     query: str,
@@ -245,27 +261,28 @@ def simple_stock_search(
         raw = [r for r in raw if _matches_query_words(r, words)]
 
     # Filtrer aux symboles avec donnees Parquet
+
     if parquet_symbols:
-        raw = [r for r in raw if r['symbol'] in parquet_symbols]
+        raw = [r for r in raw if r["symbol"] in parquet_symbols]
 
     if not raw:
         return [], f"Aucun instrument trouve pour '{query}'"
 
     stocks = [
         {
-            'symbol':      s['symbol'],
-            'name':        s['name'],
-            'description': s['description'],
-            'type':        s.get('type', 'Unknown'),
-            'sector':      s.get('sector', 'N/A'),
-            'industry':    s.get('industry'),
-            'exchange':    s.get('exchange'),
-            'market_cap':  s.get('market_cap'),
+            "symbol": s["symbol"],
+            "name": s["name"],
+            "description": s["description"],
+            "type": s.get("type", "Unknown"),
+            "sector": s.get("sector", "N/A"),
+            "industry": s.get("industry"),
+            "exchange": s.get("exchange"),
+            "market_cap": s.get("market_cap"),
         }
         for s in raw
     ]
 
-    sectors = {s['sector'] for s in stocks if s.get('sector') and s['sector'] != 'N/A'}
+    sectors = {s["sector"] for s in stocks if s.get("sector") and s["sector"] != "N/A"}
     if sectors:
         explanation = (
             f"Found {len(stocks)} instrument(s) for '{query}'. "

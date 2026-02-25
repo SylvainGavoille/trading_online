@@ -81,7 +81,7 @@ Le système est organisé en **5 couches** principales qui collaborent pour anal
 
 3. **Système Multi-Agents**
    - 4 agents spécialisés (Technique, Sentiment, Risque, Exécution)
-   - Communication via Swarm (OpenAI)
+   - Communication via DSPy framework
    - Prise de décision collaborative
 
 4. **Analyseurs de Données**
@@ -959,12 +959,12 @@ Le trading comporte des risques. Les performances passées ne garantissent pas l
 | **RSI** | Relative Strength Index (0-100) |
 | **Slippage** | Différence prix attendu/exécuté |
 | **Stop-Loss** | Ordre automatique limitant pertes |
-| **Swarm** | Framework multi-agents (OpenAI) |
+| **DSPy** | Framework multi-agents avec optimisation automatique |
 
 ## Références
 
 - Interactive Brokers API : https://interactivebrokers.github.io/
-- OpenAI Swarm : https://github.com/openai/swarm
+- DSPy Documentation : https://dspy-docs.vercel.app/
 - ib_insync : https://ib-insync.readthedocs.io/
 
 ## Structure des Fichiers

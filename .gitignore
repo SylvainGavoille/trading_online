@@ -164,3 +164,13 @@ cython_debug/
 # PDFs - Peuvent être régénérés depuis les Markdown
 pdf_docs/*.pdf
 *.pdf
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/cache/
+
+# Market data / local databases
+*.sqlite
+options_snapshot/
+portfolio_daily/
+price_historical/
