@@ -32,17 +32,13 @@ def build_labels_for_horizon(
     key_cols = ["symbol", "right", "expiry", "strike"]
     df["date_fwd"] = df["date"] + pd.Timedelta(days=horizon)
 
-    # Future mid look-up table
-    future = (
-        df[key_cols + ["date", "mid"]]
-        .rename(columns={"date": "date_lookup", "mid": "mid_fwd"})
-    )
-    out = df.merge(
-        future,
-        left_on=key_cols + ["date_fwd"],
-        right_on=key_cols + ["date_lookup"],
-        how="left",
-    ).drop(columns=["date_lookup"])
+    # Future mid look-up via MultiIndex hash (O(N) vs O(N log N) merge)
+    mid_series = df.set_index(key_cols + ["date"])["mid"]
+    if mid_series.index.duplicated().any():
+        mid_series = mid_series[~mid_series.index.duplicated(keep="last")]
+    lookup_idx = pd.MultiIndex.from_arrays([df[c] for c in key_cols] + [df["date_fwd"]])
+    df["mid_fwd"] = mid_series.reindex(lookup_idx).values
+    out = df
 
     # Validity: future mid must exist and option must not have expired
     out["valid_label"] = (~out["mid_fwd"].isna()).astype(int)

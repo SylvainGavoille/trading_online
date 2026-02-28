@@ -29,7 +29,7 @@ PORTFOLIO_DAILY_ROOT  = PROJECT_ROOT / "portfolio_daily"
 _TOO_SMALL_RE = re.compile(r"File '([^']+)' too small to be a Parquet file")
 
 
-def duckdb_scan(con: "_duckdb.DuckDBPyConnection", sql: str, max_retries: int = 500) -> pd.DataFrame:
+def duckdb_scan(con: "_duckdb.DuckDBPyConnection", sql: str, max_retries: int = 50) -> pd.DataFrame:
     """
     Execute a DuckDB SQL statement that contains a read_parquet(glob) call.
 

@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:${PATH}"
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml uv.lock README.md ./
+RUN pip install --no-cache-dir uv && uv sync --frozen --no-dev
+
+COPY src ./src
+COPY dashboard ./dashboard
+COPY run_trader.py ./run_trader.py
+COPY main.py ./main.py
+COPY test_connection.py ./test_connection.py
+COPY diagnose_connection.py ./diagnose_connection.py
+COPY quick_start.py ./quick_start.py
+COPY run_dashboard.bat ./run_dashboard.bat
+
+CMD ["uv", "run", "python", "src/ml/gcp_daily_job.py", "--help"]

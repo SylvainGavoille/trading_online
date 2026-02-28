@@ -124,7 +124,7 @@ options_collector:
 # Budget percentages (max_premium_spend_pct_bp, max_margin_add_pct_bp) are
 # shared with BacktestConfig in src/ml/config.py — edit there for per-trade caps.
 ml_optimizer:
-  prefer_ilp: true           # true = use PuLP ILP solver; false = greedy fallback
+  prefer_ilp: false          # true = use PuLP ILP solver; false = greedy fallback
   max_trades_per_symbol: 1   # max contracts per underlying per trading day
 
   long_premium:

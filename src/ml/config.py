@@ -23,18 +23,19 @@ class BacktestConfig:
 class TrainConfig:
     num_leaves: int = 127
     learning_rate: float = 0.05
-    n_estimators: int = 250
+    n_estimators: int = 400          # early stopping caps actual trees; more headroom
     min_data_in_leaf: int = 100
     feature_fraction: float = 0.8
     bagging_fraction: float = 0.8
     bagging_freq: int = 1
     lambda_l2: float = 1.0
+    force_col_wise: bool = True      # faster histogram build for small feature counts
 
 
 @dataclass(frozen=True)
 class OptimizerConfig:
     """Optimizer parameters loaded from config.yaml → ml_optimizer section."""
-    prefer_ilp: bool = True
+    prefer_ilp: bool = False
     max_trades_per_symbol: int = 1
     # Greek caps per category (None = uncapped)
     max_abs_delta_long: Optional[float] = None
@@ -55,7 +56,7 @@ def load_optimizer_config(yaml_path: Path) -> OptimizerConfig:
     sp  = sec.get("short_premium", {}) or {}
 
     return OptimizerConfig(
-        prefer_ilp=bool(sec.get("prefer_ilp", True)),
+        prefer_ilp=bool(sec.get("prefer_ilp", False)),
         max_trades_per_symbol=int(sec.get("max_trades_per_symbol", 1)),
         max_abs_delta_long=_opt_float(lp.get("max_abs_portfolio_delta")),
         max_abs_vega_long=_opt_float(lp.get("max_abs_portfolio_vega")),

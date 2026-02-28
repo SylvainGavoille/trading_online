@@ -83,7 +83,7 @@ def backtest_ranker(
         date, pnl, avg_pred, n_trades, cum_pnl
     """
     df = df.copy()
-    df["pred_score"] = model.predict(df[feature_cols])
+    df["pred_score"] = model.predict(df[feature_cols].to_numpy(dtype=np.float32))
 
     portfolio_map = portfolio.set_index("date")
     trades = []

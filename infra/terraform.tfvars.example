@@ -1,0 +1,35 @@
+project_id                    = "sylvain-488510"
+region                        = "us-central1"
+vpc_network                   = "default"
+vpc_connector_name            = "quantum-connector"
+vpc_connector_cidr            = "10.8.0.0/28"
+bucket_name                   = "your-unique-quantum-ml-bucket"
+container_image               = "us-central1-docker.pkg.dev/sylvain-488510/quantum/quantum-ml:latest"
+
+# Optional: remote IB Gateway/TWS reachable from Cloud Run (recommended: private IP over VPC)
+# ibkr_tws_endpoint            = "10.10.0.5"
+# ibkr_port                    = 4002
+#
+# Optional: Secret Manager IDs for IBKR credentials (do not place credentials in tfvars)
+# ibkr_username_secret_id      = "ibkr-username"
+# ibkr_password_secret_id      = "ibkr-password"
+# ibkr_username_secret_version = "latest"
+# ibkr_password_secret_version = "latest"
+
+# Every weekday at 22:20 New York time (after US market close)
+scheduler_cron                = "20 22 * * 1-5"
+scheduler_time_zone           = "America/New_York"
+
+# Pipeline runtime tuning
+price_refresh_days            = 7
+pipeline_lookback_days        = 365
+pipeline_horizons             = [2, 5, 10, 21]
+pipeline_categories           = ["long_premium", "short_premium"]
+pipeline_topk                 = 3
+pipeline_min_train_days       = 80
+pipeline_test_days            = 20
+pipeline_step_days            = 20
+job_timeout_seconds           = 7200
+job_cpu                       = "2"
+job_memory                    = "8Gi"
+job_max_retries               = 1

@@ -97,10 +97,6 @@ def train_ranker(
     Fit a LambdaRank model that ranks option candidates within each trading day.
     """
     df = df.sort_values("date").copy()
-    group_sizes = df.groupby("date").size().to_list()
-
-    X = df[feature_cols]
-    y = df["score"].astype(float)
 
     model = lgb.LGBMRanker(
         objective="lambdarank",
@@ -113,11 +109,47 @@ def train_ranker(
         bagging_fraction=train_cfg.bagging_fraction,
         bagging_freq=train_cfg.bagging_freq,
         lambda_l2=train_cfg.lambda_l2,
+        force_col_wise=train_cfg.force_col_wise,
         random_state=42,
         n_jobs=-1,
         verbose=-1,
     )
-    model.fit(X, y, group=group_sizes)
+
+    all_dates = sorted(df["date"].unique())
+    n_val = max(1, int(len(all_dates) * 0.2))
+    train_dates = set(all_dates[:-n_val])
+    val_dates   = set(all_dates[-n_val:])
+
+    df_train = df[df["date"].isin(train_dates)]
+    df_val   = df[df["date"].isin(val_dates)]
+
+    if df_val.empty or len(train_dates) < 10:
+        # Not enough data: train without early stopping.
+        # np.unique on pre-sorted date column is a single O(N) pass.
+        _, grp = np.unique(df["date"].values, return_counts=True)
+        model.fit(
+            df[feature_cols].to_numpy(dtype=np.float32),
+            df["score"].to_numpy(dtype=np.float32),
+            group=grp.tolist(),
+        )
+    else:
+        _, tr_grp = np.unique(df_train["date"].values, return_counts=True)
+        _, va_grp = np.unique(df_val["date"].values,   return_counts=True)
+
+        X_train = df_train[feature_cols].to_numpy(dtype=np.float32)
+        y_train = df_train["score"].to_numpy(dtype=np.float32)
+        X_val   = df_val[feature_cols].to_numpy(dtype=np.float32)
+        y_val   = df_val["score"].to_numpy(dtype=np.float32)
+
+        model.fit(
+            X_train, y_train, group=tr_grp.tolist(),
+            eval_set=[(X_val, y_val)], eval_group=[va_grp.tolist()],
+            callbacks=[
+                lgb.early_stopping(20, verbose=False),
+                lgb.log_evaluation(period=-1),
+            ],
+        )
+
     return model
 
 

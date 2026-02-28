@@ -14,30 +14,27 @@ def build_underlying_features(px: pd.DataFrame) -> pd.DataFrame:
 
     All features use strictly past data (pct_change / rolling on past N days).
     """
-    px = px.copy()
-    g = px.groupby("symbol")
+    # Sort + clean RangeIndex so reset_index(level=0, drop=True) aligns safely.
+    px = px.sort_values(["symbol", "date"]).reset_index(drop=True).copy()
+
+    # Single groupby object; sort=False skips redundant re-sort on already-sorted data.
+    g = px.groupby("symbol", sort=False)
 
     px["ret_1d"]  = g["close"].pct_change(1)
     px["ret_5d"]  = g["close"].pct_change(5)
     px["ret_20d"] = g["close"].pct_change(20)
 
-    # Realized volatility
-    px["rv_10d"] = (
-        g["ret_1d"].rolling(10).std().reset_index(level=0, drop=True)
-    )
-    px["rv_20d"] = (
-        g["ret_1d"].rolling(20).std().reset_index(level=0, drop=True)
-    )
+    # Realized volatility — Cython-optimized rolling path (no Python lambda overhead).
+    px["rv_10d"] = g["ret_1d"].rolling(10).std().reset_index(level=0, drop=True)
+    px["rv_20d"] = g["ret_1d"].rolling(20).std().reset_index(level=0, drop=True)
 
-    # Intraday range and overnight gap
+    # Intraday range and overnight gap — cache shift to avoid a second groupby pass.
+    prev_close = g["close"].shift(1)
     px["range_pct"] = (px["high"] - px["low"]) / px["close"].replace(0, np.nan)
-    px["gap_pct"]   = (
-        (px["open"] - g["close"].shift(1))
-        / g["close"].shift(1)
-    )
+    px["gap_pct"]   = (px["open"] - prev_close) / prev_close
 
     # Volume
-    px["vol_log"]  = safe_log1p(px["volume"])
+    px["vol_log"] = safe_log1p(px["volume"])
     vol_ma = g["vol_log"].rolling(20).mean().reset_index(level=0, drop=True)
     vol_sd = g["vol_log"].rolling(20).std().reset_index(level=0, drop=True)
     px["vol_z_20d"] = (px["vol_log"] - vol_ma) / vol_sd
@@ -65,9 +62,20 @@ def build_underlying_features(px: pd.DataFrame) -> pd.DataFrame:
 def attach_underlying_close(opt_feat: pd.DataFrame, px: pd.DataFrame) -> pd.DataFrame:
     """
     Merge underlying close into the options feature table to compute moneyness.
+    Uses the same date-mapping approach as build_option_features so options on
+    days with no price file (e.g. Monday after Friday) still get a valid close.
     """
-    close_df = px[["symbol", "date", "close"]].copy()
-    out = opt_feat.merge(close_df, on=["symbol", "date"], how="left")
+    opt_dates = pd.DataFrame({"date": sorted(opt_feat["date"].unique())})
+    px_dates  = pd.DataFrame({"price_date": sorted(px["date"].unique())})
+    px_dates["date"] = px_dates["price_date"]
+    date_map  = pd.merge_asof(
+        opt_dates, px_dates,
+        on="date", direction="backward", tolerance=pd.Timedelta("7 days"),
+    )
+
+    close_df = px[["symbol", "date", "close"]].rename(columns={"date": "price_date"})
+    tmp      = opt_feat.merge(date_map, on="date", how="left")
+    out      = tmp.merge(close_df, on=["symbol", "price_date"], how="left").drop(columns=["price_date"])
     out["moneyness"]     = out["close"] / out["strike"].replace(0, np.nan)
     out["log_moneyness"] = np.log(out["moneyness"].replace(0, np.nan))
     out.replace([np.inf, -np.inf], np.nan, inplace=True)

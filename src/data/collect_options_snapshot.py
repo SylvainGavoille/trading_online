@@ -564,18 +564,27 @@ def main() -> None:
     raw_cfg = yaml.safe_load(open(CONFIG_PATH))
     # Use a dedicated client ID so this subprocess doesn't conflict with the
     # dashboard connection (which holds client_id 10).
-    # Try the configured collector_id first, then fall back to higher IDs in
-    # case a previous run didn't disconnect cleanly (Error 326).
+    # Try a wider ID window because Cloud Run retries / parallel runs can leave
+    # short-lived sessions around.
     base_id = raw_cfg.get("api", {}).get("collector_client_id", 11)
     ib = None
-    for cid in range(base_id, base_id + 9):
+    for cid in range(base_id, base_id + 20):
         raw_cfg["api"]["client_id"] = cid
         candidate = IBClient(raw_cfg)
+        print(
+            f"[ibkr] trying host={candidate.host} port={candidate.port} client_id={cid}..."
+        )
         if candidate.connect_and_run():
             ib = candidate
             print(f"[ibkr] Connected with client_id={cid}.")
             break
-        print(f"[ibkr] client_id={cid} in use, trying next...")
+        # Ensure failed attempt is fully closed before next client_id.
+        try:
+            candidate.disconnect()
+        except Exception:
+            pass
+        print(f"[ibkr] connection failed for client_id={cid}, trying next...")
+        time.sleep(1)
     if ib is None:
         print(
             "[ERROR] Could not connect to IBKR on any client ID. "

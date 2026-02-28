@@ -174,3 +174,9 @@ pdf_docs/*.pdf
 options_snapshot/
 portfolio_daily/
 price_historical/
+
+# Terraform local state
+.terraform/
+*.tfstate
+*.tfstate.*
+infra/terraform.tfvars

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import sys
 import subprocess
+import os
+from io import BytesIO
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -125,12 +127,16 @@ def _read_options_coverage() -> Optional[pd.DataFrame]:
 
 def _read_summary_metrics() -> Optional[pd.DataFrame]:
     path = _PROJECT_ROOT / "ml_output" / "summary_metrics.parquet"
-    if not path.exists():
+    if path.exists():
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            pass
+
+    gcs_root = os.getenv("ML_RESULTS_GCS_URI", "").strip()
+    if not gcs_root:
         return None
-    try:
-        return pd.read_parquet(path)
-    except Exception:
-        return None
+    return _read_parquet_from_gcs_uri(f"{gcs_root.rstrip('/')}/summary_metrics.parquet")
 
 
 def _read_equity_curves(category: str, horizon: int) -> Optional[pd.DataFrame]:
@@ -142,10 +148,43 @@ def _read_equity_curves(category: str, horizon: int) -> Optional[pd.DataFrame]:
         / f"h={horizon}"
         / "fold_equity.parquet"
     )
-    if not path.exists():
+    if path.exists():
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            pass
+
+    gcs_root = os.getenv("ML_RESULTS_GCS_URI", "").strip()
+    if not gcs_root:
         return None
+    gcs_path = (
+        f"{gcs_root.rstrip('/')}/backtests/category={category}/h={horizon}/fold_equity.parquet"
+    )
+    return _read_parquet_from_gcs_uri(gcs_path)
+
+
+def _read_parquet_from_gcs_uri(uri: str) -> Optional[pd.DataFrame]:
+    """Read a parquet file from gs://... URI using ADC credentials."""
+    if not uri.startswith("gs://"):
+        return None
+
     try:
-        return pd.read_parquet(path)
+        from google.cloud import storage
+    except Exception:
+        return None
+
+    without_scheme = uri[len("gs://") :]
+    if "/" not in without_scheme:
+        return None
+    bucket_name, blob_name = without_scheme.split("/", 1)
+
+    try:
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(blob_name)
+        if not blob.exists(client):
+            return None
+        data = blob.download_as_bytes()
+        return pd.read_parquet(BytesIO(data))
     except Exception:
         return None
 

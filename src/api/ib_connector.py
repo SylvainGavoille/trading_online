@@ -5,6 +5,8 @@ from ibapi.common import TickerId
 import threading
 import time
 import pandas as pd
+import os
+import socket
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict, Any
@@ -35,9 +37,10 @@ class IBClient(EWrapper, EClient):
         EClient.__init__(self, self)
 
         # Connection settings
-        self.host = config["api"]["tws_endpoint"]
-        self.port = config["api"]["port"]
-        self.client_id = config["api"].get("client_id", 10)
+        api_cfg = config.get("api", {})
+        self.host = os.environ.get("IBKR_TWS_ENDPOINT", api_cfg.get("tws_endpoint", "127.0.0.1"))
+        self.port = self._env_int("IBKR_PORT", int(api_cfg.get("port", 4002)))
+        self.client_id = self._env_int("IBKR_CLIENT_ID", int(api_cfg.get("client_id", 10)))
 
         # Data storage with default values
         self.market_data = defaultdict(
@@ -107,30 +110,69 @@ class IBClient(EWrapper, EClient):
         self._mktdata_events: Dict[int, threading.Event] = {}
 
         # Auto-reconnect watchdog
+        self._thread: threading.Thread = None
         self._watchdog_thread: threading.Thread = None
         self._watchdog_running = False
         self.last_reconnect_at: datetime = None
         self.reconnect_attempts: int = 0
+        self.last_error_code: int | None = None
+        self.last_error_msg: str | None = None
 
         # Options market data farm readiness (set when "usopt" farm connects)
         self._usopt_ready = threading.Event()
 
+    @staticmethod
+    def _env_int(var_name: str, default: int) -> int:
+        """Read integer override from environment with safe fallback."""
+        raw = os.environ.get(var_name)
+        if raw is None or str(raw).strip() == "":
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            print(f"[IBKR] Invalid integer for {var_name}={raw!r}; using default {default}")
+            return default
+
     def connect_and_run(self):
         """Establish connection and start message processing thread"""
         try:
+            target_host = self.host
+            target_port = self.port
+            target_client_id = self.client_id
+            # Fast preflight for clearer diagnostics in Cloud Run logs.
+            # IB API handshake still happens through self.connect().
+            try:
+                with socket.create_connection((target_host, int(target_port)), timeout=2):
+                    pass
+            except OSError as sock_exc:
+                print(
+                    f"[IBKR] TCP preflight failed host={target_host} port={target_port}: {sock_exc}"
+                )
+                return False
+
             # Connect to TWS
-            self.connect(self.host, self.port, self.client_id)
+            self.connect(target_host, target_port, target_client_id)
 
             # Start message processing in a separate thread
             self._thread = threading.Thread(target=self._run_thread, daemon=True)
             self._thread.start()
 
-            # Give time for initial connection messages
-            time.sleep(1)
+            # Give more time for initial handshake over remote network paths.
+            connect_timeout = self._env_int("IBKR_CONNECT_TIMEOUT_S", 8)
+            deadline = time.time() + max(connect_timeout, 1)
+            while time.time() < deadline:
+                if self.isConnected():
+                    break
+                time.sleep(0.25)
 
-            # Check if connection was successful
             if not self.isConnected():
-                print("Failed to establish connection")
+                suffix = ""
+                if self.last_error_code is not None:
+                    suffix = f" last_error={self.last_error_code}:{self.last_error_msg}"
+                print(
+                    "Failed to establish connection "
+                    f"(host={target_host} port={target_port} client_id={target_client_id}){suffix}"
+                )
                 return False
 
             # Start the auto-reconnect watchdog
@@ -324,6 +366,8 @@ class IBClient(EWrapper, EClient):
             # Suppress printing to avoid flooding output (e.g. 2 lines × 90 contracts).
             return
 
+        self.last_error_code = errorCode
+        self.last_error_msg = errorString
         print(f"Error {errorCode}: {errorString}")
 
         if reqId in self.active_requests:

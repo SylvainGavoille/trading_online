@@ -55,8 +55,25 @@ def build_option_features(
     # Days to expiry
     opt["dte"] = (opt["expiry"] - opt["date"]).dt.days.astype(int)
 
-    # Merge underlying features
-    merged = opt.merge(und_feat, on=["symbol", "date"], how="left")
+    # Merge underlying features.
+    # Build a tiny date-mapping table (O(D) rows, not O(N)) so that each
+    # options snapshot date resolves to the nearest prior price date — this
+    # handles weekends/holidays where the options file (e.g. Monday) arrives
+    # after the last price file (Friday).
+    opt_dates = pd.DataFrame({"date": sorted(opt["date"].unique())})
+    und_dates = pd.DataFrame({"price_date": sorted(und_feat["date"].unique())})
+    und_dates["date"] = und_dates["price_date"]
+    date_map  = pd.merge_asof(
+        opt_dates, und_dates,
+        on="date", direction="backward", tolerance=pd.Timedelta("7 days"),
+    )  # columns: date, price_date (NaT when no price within 7 days)
+
+    opt2   = opt.merge(date_map, on="date", how="left")
+    merged = opt2.merge(
+        und_feat.rename(columns={"date": "price_date"}),
+        on=["symbol", "price_date"],
+        how="left",
+    ).drop(columns=["price_date"])
 
     # Merge portfolio (by date)
     p = portfolio.copy()
