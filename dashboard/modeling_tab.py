@@ -34,6 +34,7 @@ from gcs_data import (
     read_ml_equity_curves,
     read_ml_actions_summary,
     read_ml_actions_equity,
+    read_ml_actions_picks,
     read_latest_recommendations,
 )
 
@@ -422,6 +423,35 @@ def _render_equity_chart(eq: pd.DataFrame, title: str, chart_key: str) -> None:
     c3.metric("Total Trades", f"{int(eq[trades_col].sum()):,}" if trades_col in eq.columns else "—")
 
 
+def _fetch_sector_info(symbols: list[str]) -> dict[str, dict]:
+    """Fetch sector and industry from Yahoo Finance for each symbol."""
+    import yfinance as yf
+    result: dict[str, dict] = {}
+    for sym in symbols:
+        try:
+            info = yf.Ticker(sym).info
+            result[sym] = {
+                "sector": info.get("sector") or "—",
+                "industry": info.get("industry") or "—",
+            }
+        except Exception:
+            result[sym] = {"sector": "—", "industry": "—"}
+    return result
+
+
+def _compute_hit_rates(picks: pd.DataFrame) -> pd.DataFrame:
+    """From daily_picks backtest data, compute per-symbol win rate and avg return."""
+    if picks is None or picks.empty or "fwd_ret" not in picks.columns:
+        return pd.DataFrame(columns=["symbol", "win_rate", "avg_return", "n_appearances"])
+    g = picks.groupby("symbol")["fwd_ret"]
+    hr = pd.DataFrame({
+        "win_rate": g.apply(lambda x: (x > 0).mean()),
+        "avg_return": g.mean(),
+        "n_appearances": g.count(),
+    }).reset_index()
+    return hr
+
+
 def _render_recommendations() -> None:
     """Show today's stock recommendations from the actions pipeline."""
     st.markdown("#### 🎯 Today's Stock Recommendations")
@@ -430,7 +460,7 @@ def _render_recommendations() -> None:
     if recs is None:
         with st.spinner("Loading recommendations from GCS…"):
             recs = read_latest_recommendations()
-        st.session_state["ml_recs_cache"] = recs  # cache even if None
+        st.session_state["ml_recs_cache"] = recs
 
     if recs is None or recs.empty:
         st.info(
@@ -457,9 +487,12 @@ def _render_recommendations() -> None:
 |---|---|
 | `rank` | 1 = highest expected return for this horizon |
 | `symbol` | Stock ticker |
-| `score` | Raw model output (predicted forward return). Higher = more bullish. |
+| `expected_gain` | Score expressed as a percentage — the model's predicted forward return |
 | `close` | Closing price on `price_date` — the last price the model saw |
-| `horizon` | Prediction window in trading days (5 ≈ 1 week, 10 ≈ 2 weeks) |
+| `win_rate` | % of backtest appearances where this stock had a positive return (historical, not a guarantee) |
+| `avg_return` | Average actual return across all backtest appearances for this symbol |
+| `n_appearances` | How many times this stock appeared in the top-K picks during the backtest |
+| `sector` / `industry` | From Yahoo Finance (loaded on demand) |
 
 **Important caveats:**
 - These are **model predictions**, not financial advice.
@@ -479,14 +512,71 @@ def _render_recommendations() -> None:
         st.caption(f"No recommendations for H={sel_h}.")
         return
 
-    display_cols = [c for c in ["rank", "symbol", "score", "close"] if c in subset.columns]
-    styled = (
-        subset[display_cols]
-        .style.format({"score": "{:.4f}", "close": "{:.2f}"})
-        .background_gradient(subset=["score"] if "score" in display_cols else [], cmap="RdYlGn")
-    )
+    # Add % expected gain column
+    if "score" in subset.columns:
+        subset["expected_gain"] = subset["score"] * 100
+
+    # Merge historical hit rates from backtest picks
+    picks_key = f"ml_picks_cache_h{sel_h}"
+    picks_df = st.session_state.get(picks_key)
+    if picks_df is None:
+        picks_df = read_ml_actions_picks(sel_h)
+        st.session_state[picks_key] = picks_df  # cache even if None
+
+    if picks_df is not None and not picks_df.empty:
+        hr = _compute_hit_rates(picks_df)
+        subset = subset.merge(hr, on="symbol", how="left")
+
+    # Sector / industry (on-demand)
+    sector_key = f"ml_sector_cache_h{sel_h}"
+    sector_data = st.session_state.get(sector_key)
+
+    if sector_data is None:
+        if st.button("🏢 Load sector & industry info (Yahoo Finance)", key="btn_load_sector"):
+            with st.spinner(f"Fetching sector info for {len(subset)} stocks…"):
+                sector_data = _fetch_sector_info(subset["symbol"].tolist())
+                st.session_state[sector_key] = sector_data
+
+    if sector_data:
+        subset["sector"] = subset["symbol"].map(lambda s: sector_data.get(s, {}).get("sector", "—"))
+        subset["industry"] = subset["symbol"].map(lambda s: sector_data.get(s, {}).get("industry", "—"))
+
+    # Build display table
+    display_cols = [c for c in [
+        "rank", "symbol", "expected_gain", "close",
+        "win_rate", "avg_return", "n_appearances",
+        "sector", "industry",
+    ] if c in subset.columns]
+
+    fmt: dict = {"close": "{:.2f}"}
+    if "expected_gain" in subset.columns:
+        fmt["expected_gain"] = "{:+.2f}%"
+    if "win_rate" in subset.columns:
+        fmt["win_rate"] = "{:.0%}"
+    if "avg_return" in subset.columns:
+        fmt["avg_return"] = "{:+.4f}"
+
+    gradient_cols = [c for c in ["expected_gain", "win_rate"] if c in subset.columns]
+    styled = subset[display_cols].style.format(fmt)
+    if gradient_cols:
+        styled = styled.background_gradient(subset=gradient_cols, cmap="RdYlGn")
+
     st.dataframe(styled, use_container_width=True, hide_index=True)
     st.caption(f"{len(subset)} stocks ranked for H={sel_h}")
+
+    # Explore a stock in the Exploration tab
+    st.markdown("**Explore a stock from this list**")
+    explore_col1, explore_col2 = st.columns([3, 1])
+    explore_sym = explore_col1.selectbox(
+        "Symbol",
+        subset["symbol"].tolist(),
+        key="recs_explore_sym",
+        label_visibility="collapsed",
+    )
+    if explore_col2.button("📈 Open in Exploration", key="btn_recs_explore", use_container_width=True):
+        st.session_state["quick_selected_symbol"] = explore_sym
+        st.session_state["auto_load_data"] = True
+        st.info(f"Switch to the **🔍 Exploration** tab to view **{explore_sym}**.")
 
     st.divider()
 

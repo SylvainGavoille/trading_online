@@ -229,6 +229,11 @@ def read_ml_actions_equity(horizon: int) -> Optional[pd.DataFrame]:
     return read_ml_parquet(f"actions/backtests/h={horizon}/fold_equity.parquet")
 
 
+def read_ml_actions_picks(horizon: int) -> Optional[pd.DataFrame]:
+    """Read ml_output/actions/backtests/h={h}/daily_picks.parquet."""
+    return read_ml_parquet(f"actions/backtests/h={horizon}/daily_picks.parquet")
+
+
 def read_latest_recommendations() -> Optional[pd.DataFrame]:
     """
     Return the most recent recommendations across all horizons.
