@@ -424,6 +424,59 @@ def _render_equity_chart(eq: pd.DataFrame, title: str, chart_key: str) -> None:
 def _render_results() -> None:
     st.subheader("📈 Results")
 
+    with st.expander("ℹ️ How to read this page", expanded=False):
+        st.markdown("""
+**This page shows outputs produced by the daily Cloud Run job** (`quantum-daily-ml`, runs every weekday at 22:20 NY time).
+
+---
+
+#### 🗂️ Data pipeline overview
+```
+price_historical/  (6 471 symbols, daily OHLCV)
+        ↓
+Actions Pipeline  →  LightGBM regressor per horizon
+        ↓                 predicts forward return, ranks top-K stocks
+ml_output/actions/
+  summary.parquet          ← fold metrics for all horizons
+  backtests/h=5/
+    fold_metrics.parquet   ← per-fold PnL, Sharpe, trade count
+    fold_equity.parquet    ← daily equity curve
+  models/h=5/
+    model_fold*.txt        ← saved LightGBM models
+    feature_cols.json      ← list of features used
+```
+
+---
+
+#### 📊 Actions Fold Metrics table — column guide
+
+| Column | Meaning |
+|---|---|
+| `horizon` | Prediction horizon in trading days (e.g. 5 = 1 week forward return) |
+| `fold` | Walk-forward fold index. Each fold trains on all past data, tests on next period. |
+| `test_start / test_end` | Date range the fold was evaluated on (out-of-sample) |
+| `total_pnl` | Sum of daily average returns across the test period (not dollar P&L — it's a % return proxy) |
+| `sharpe_proxy` | Annualised Sharpe ratio: `mean(daily_pnl) / std(daily_pnl) × √252`. **>1 is good, >2 is very good.** |
+| `n_picks` | Total number of stock selections made across the test period |
+| `n_days` | Number of trading days in the test period |
+
+---
+
+#### 📈 Equity curve — how to read it
+
+- The curve shows **cumulative sum of daily PnL** across all walk-forward test folds
+- Each fold is evaluated **out-of-sample** (model never saw the test data during training)
+- A rising curve = the model ranked high-return stocks above low-return ones on average
+- **Total PnL** and **Annualised Sharpe** are shown below the chart
+
+> ⚠️ PnL values are **fractional returns** (e.g. +0.05 = +5% average across top-K picks that day), not dollar amounts. To estimate dollar P&L, multiply by your position size.
+
+---
+
+#### 🔄 Refreshing data
+Results are cached for the session. To reload fresh data from GCS, **reload the page**.
+        """)
+
     import plotly.express as px
 
     # ── Last run status ────────────────────────────────────────────────────
@@ -545,21 +598,36 @@ def _render_results() -> None:
                          "total_pnl", "sharpe_proxy", "n_picks", "n_days"]
             if c in actions.columns
         ]
-        with st.expander("📊 Actions Fold Metrics", expanded=False):
+        with st.expander("📊 Actions Fold Metrics", expanded=True):
+            st.caption(
+                "Each row is one out-of-sample test fold. "
+                "`total_pnl` = sum of daily avg returns (fractional, not $). "
+                "`sharpe_proxy` = annualised Sharpe (>1 good, >2 very good). "
+                "`n_picks` = total stock selections made."
+            )
             st.dataframe(
                 actions[act_cols].sort_values(["horizon", "test_end"])
-                .style.format({"total_pnl": "{:+,.0f}", "sharpe_proxy": "{:.2f}"}),
+                .style.format({"total_pnl": "{:+.4f}", "sharpe_proxy": "{:.2f}"}),
                 use_container_width=True,
                 hide_index=True,
             )
 
         if "horizon" in actions.columns:
             horizons_available = sorted(actions["horizon"].unique().tolist())
-            sel_ah = st.selectbox("Horizon", horizons_available, key="res_act_h")
+            sel_ah = st.selectbox(
+                "Select horizon (trading days)",
+                horizons_available,
+                format_func=lambda h: f"H={h}  (~{h} trading days forward)",
+                key="res_act_h",
+            )
             eq_act = read_ml_actions_equity(sel_ah)
             if eq_act is None:
                 st.caption(f"No equity data for H={sel_ah}.")
             else:
+                st.caption(
+                    "Cumulative sum of daily average returns across all out-of-sample folds. "
+                    "Rising = model consistently ranked better stocks higher."
+                )
                 _render_equity_chart(
                     eq_act, f"Actions Cumulative PnL — H={sel_ah}", "res_actions_equity_chart"
                 )
