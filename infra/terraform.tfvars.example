@@ -34,7 +34,7 @@ pipeline_lgbm_jobs            = 1
 # Set to true when Cloud Run IP is rate-limited by Yahoo Finance (ok=0 vide=N)
 skip_price_refresh            = true
 
-job_timeout_seconds           = 7200
+job_timeout_seconds           = 10800
 job_cpu                       = "2"
 job_memory                    = "8Gi"
-job_max_retries               = 1
+job_max_retries               = 0
