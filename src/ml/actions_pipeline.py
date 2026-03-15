@@ -114,6 +114,31 @@ _FEAT_LABELS: dict[str, str] = {
 }
 
 
+def _fetch_stock_metadata(symbols: list[str]) -> pd.DataFrame:
+    """Fetch name, sector, industry, market cap from Yahoo Finance for each symbol."""
+    import yfinance as yf
+
+    rows = []
+    for sym in symbols:
+        try:
+            info = yf.Ticker(sym).info
+            rows.append({
+                "symbol": sym,
+                "name": info.get("longName") or info.get("shortName") or sym,
+                "sector": info.get("sector") or "—",
+                "industry": info.get("industry") or "—",
+                "market_cap": info.get("marketCap"),
+                "exchange": info.get("exchange") or "—",
+            })
+        except Exception:
+            rows.append({
+                "symbol": sym, "name": sym,
+                "sector": "—", "industry": "—",
+                "market_cap": None, "exchange": "—",
+            })
+    return pd.DataFrame(rows)
+
+
 def _explain_contributions(
     contrib_arr: np.ndarray, feature_cols: list[str], n_top: int = 3
 ) -> list[str]:
@@ -139,13 +164,13 @@ def _generate_recommendations(
     rec_dir: Path,
     run_date: str,
     top_n: int = 50,
-) -> None:
+) -> list[str]:
     """Score all symbols on the most recent available date and save as today's recommendations."""
     feat = build_underlying_features(px)
     latest_date = feat["date"].max()
     today_feat = feat[feat["date"] == latest_date].copy()
     if today_feat.empty:
-        return
+        return []
 
     valid = today_feat[feature_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
     arr = valid.to_numpy(dtype=np.float32)
@@ -171,6 +196,7 @@ def _generate_recommendations(
     ensure_dir(rec_dir)
     recs.to_parquet(rec_dir / f"{run_date}_h{horizon}.parquet", index=False)
     print(f"[actions] H={horizon}: {len(recs)} recommendations saved -> {rec_dir}", flush=True)
+    return recs["symbol"].tolist()
 
 
 def run(args: argparse.Namespace) -> None:
@@ -201,6 +227,7 @@ def run(args: argparse.Namespace) -> None:
     print(f"[actions] {len(px):,} rows, {px['symbol'].nunique():,} symbols", flush=True)
 
     all_metrics: list[pd.DataFrame] = []
+    all_rec_symbols: set[str] = set()
     for horizon in args.horizons:
         if args.max_minutes is not None:
             elapsed_min = (time.perf_counter() - t_pipeline_start) / 60.0
@@ -317,7 +344,8 @@ def run(args: argparse.Namespace) -> None:
         # Generate today's recommendations using the most recent fold's model
         if last_model is not None:
             rec_dir = out_dir / "recommendations"
-            _generate_recommendations(px, feature_cols, last_model, horizon, rec_dir, args.end)
+            rec_syms = _generate_recommendations(px, feature_cols, last_model, horizon, rec_dir, args.end)
+            all_rec_symbols.update(rec_syms)
 
         print(
             f"[actions] H={horizon}: folds={len(metrics_df)} done in {time.time() - t0:.1f}s",
@@ -333,6 +361,12 @@ def run(args: argparse.Namespace) -> None:
     summary = pd.concat(all_metrics, ignore_index=True)
     summary.to_parquet(out_dir / "summary.parquet", index=False)
     print(f"[actions] Done. Summary rows={len(summary)} -> {out_dir / 'summary.parquet'}", flush=True)
+
+    if all_rec_symbols:
+        print(f"[actions] Fetching metadata for {len(all_rec_symbols)} symbols ...", flush=True)
+        meta_df = _fetch_stock_metadata(sorted(all_rec_symbols))
+        meta_df.to_parquet(out_dir / "stock_metadata.parquet", index=False)
+        print(f"[actions] Metadata saved -> {out_dir / 'stock_metadata.parquet'}", flush=True)
 
 
 def main() -> None:

@@ -36,6 +36,7 @@ from gcs_data import (
     read_ml_actions_equity,
     read_ml_actions_picks,
     read_latest_recommendations,
+    read_stock_metadata,
 )
 
 
@@ -423,22 +424,6 @@ def _render_equity_chart(eq: pd.DataFrame, title: str, chart_key: str) -> None:
     c3.metric("Total Trades", f"{int(eq[trades_col].sum()):,}" if trades_col in eq.columns else "—")
 
 
-def _fetch_sector_info(symbols: list[str]) -> dict[str, dict]:
-    """Fetch sector and industry from Yahoo Finance for each symbol."""
-    import yfinance as yf
-    result: dict[str, dict] = {}
-    for sym in symbols:
-        try:
-            info = yf.Ticker(sym).info
-            result[sym] = {
-                "sector": info.get("sector") or "—",
-                "industry": info.get("industry") or "—",
-            }
-        except Exception:
-            result[sym] = {"sector": "—", "industry": "—"}
-    return result
-
-
 def _compute_hit_rates(picks: pd.DataFrame) -> pd.DataFrame:
     """From daily_picks backtest data, compute per-symbol win rate and avg return."""
     if picks is None or picks.empty or "fwd_ret" not in picks.columns:
@@ -450,6 +435,13 @@ def _compute_hit_rates(picks: pd.DataFrame) -> pd.DataFrame:
         "n_appearances": g.count(),
     }).reset_index()
     return hr
+
+
+def _load_metadata() -> Optional[pd.DataFrame]:
+    """Load stock metadata from GCS, cached for the session."""
+    if "stock_metadata_cache" not in st.session_state:
+        st.session_state["stock_metadata_cache"] = read_stock_metadata()
+    return st.session_state["stock_metadata_cache"]
 
 
 def _render_backtest_picks(actions: Optional[pd.DataFrame]) -> None:
@@ -495,8 +487,20 @@ def _render_backtest_picks(actions: Optional[pd.DataFrame]) -> None:
     hr["win_rate_pct"] = (hr["win_rate"] * 100).round(1)
     hr["avg_return_pct"] = (hr["avg_return"] * 100).round(2)
 
-    display = hr[["rank", "symbol", "n_appearances", "win_rate_pct", "avg_return_pct"]].head(50)
-    display.columns = ["rank", "symbol", "appearances", "win_rate %", "avg_return %"]
+    meta = _load_metadata()
+    if meta is not None and not meta.empty:
+        hr = hr.merge(meta[["symbol", "name", "sector", "industry"]], on="symbol", how="left")
+
+    base_cols = ["rank", "symbol"]
+    if "name" in hr.columns:
+        base_cols.append("name")
+    if "sector" in hr.columns:
+        base_cols.append("sector")
+    base_cols += ["n_appearances", "win_rate_pct", "avg_return_pct"]
+
+    display = hr[base_cols].head(50)
+    rename = {"n_appearances": "appearances", "win_rate_pct": "win_rate %", "avg_return_pct": "avg_return %"}
+    display = display.rename(columns=rename)
 
     styled = (
         display.style
@@ -587,25 +591,16 @@ def _render_recommendations() -> None:
         hr = _compute_hit_rates(picks_df)
         subset = subset.merge(hr, on="symbol", how="left")
 
-    # Sector / industry (on-demand)
-    sector_key = f"ml_sector_cache_h{sel_h}"
-    sector_data = st.session_state.get(sector_key)
-
-    if sector_data is None:
-        if st.button("🏢 Load sector & industry info (Yahoo Finance)", key=f"btn_load_sector_h{sel_h}"):
-            with st.spinner(f"Fetching sector info for {len(subset)} stocks…"):
-                sector_data = _fetch_sector_info(subset["symbol"].tolist())
-                st.session_state[sector_key] = sector_data
-
-    if sector_data:
-        subset["sector"] = subset["symbol"].map(lambda s: sector_data.get(s, {}).get("sector", "—"))
-        subset["industry"] = subset["symbol"].map(lambda s: sector_data.get(s, {}).get("industry", "—"))
+    # Merge pipeline-generated metadata (sector, industry, name, market_cap)
+    meta = _load_metadata()
+    if meta is not None and not meta.empty:
+        subset = subset.merge(meta, on="symbol", how="left")
 
     # Build display table
     display_cols = [c for c in [
-        "rank", "symbol", "expected_gain", "close",
+        "rank", "symbol", "name", "expected_gain", "close",
         "win_rate", "avg_return", "n_appearances",
-        "sector", "industry",
+        "sector", "industry", "market_cap",
     ] if c in subset.columns]
 
     fmt: dict = {"close": "{:.2f}"}
@@ -615,6 +610,11 @@ def _render_recommendations() -> None:
         fmt["win_rate"] = "{:.0%}"
     if "avg_return" in subset.columns:
         fmt["avg_return"] = "{:+.4f}"
+    if "market_cap" in subset.columns:
+        subset["market_cap"] = subset["market_cap"].apply(
+            lambda x: f"${x/1e9:.1f}B" if pd.notna(x) and x else "—"
+        )
+        fmt.pop("market_cap", None)  # already formatted as string
 
     gradient_cols = [c for c in ["expected_gain", "win_rate"] if c in subset.columns]
     styled = subset[display_cols].style.format(fmt)
@@ -636,8 +636,12 @@ def _render_recommendations() -> None:
         row = subset[subset["symbol"] == exp_sym].iloc[0]
         gain_str = f"{row['expected_gain']:+.2f}%" if "expected_gain" in subset.columns else ""
         wr_str = f" · win rate {row['win_rate']:.0%}" if "win_rate" in subset.columns and pd.notna(row.get("win_rate")) else ""
+        name_str = f" — {row['name']}" if "name" in subset.columns and pd.notna(row.get("name")) else ""
+        sector_str = f"  \n{row['sector']} · {row['industry']}" if "sector" in subset.columns and pd.notna(row.get("sector")) and row.get("sector") != "—" else ""
+        cap_str = f"  \nMarket cap: {row['market_cap']}" if "market_cap" in subset.columns and pd.notna(row.get("market_cap")) and row.get("market_cap") != "—" else ""
         st.info(
-            f"**{exp_sym}** — rank #{int(row['rank'])}  {gain_str}{wr_str}\n\n"
+            f"**{exp_sym}**{name_str} — rank #{int(row['rank'])}  {gain_str}{wr_str}"
+            f"{sector_str}{cap_str}\n\n"
             f"Top drivers: **{row['explanation']}**\n\n"
             f"↑ = feature pushed the score up (bullish signal)  ·  ↓ = feature pulled it down"
         )
