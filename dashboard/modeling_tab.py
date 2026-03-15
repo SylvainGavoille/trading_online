@@ -562,6 +562,24 @@ def _render_recommendations() -> None:
     st.dataframe(styled, use_container_width=True, hide_index=True)
     st.caption(f"{len(subset)} stocks ranked for H={sel_h}")
 
+    # Per-stock explanation
+    if "explanation" in subset.columns:
+        st.markdown("**Why was this stock selected?**")
+        exp_sym = st.selectbox(
+            "Pick a stock to explain",
+            subset["symbol"].tolist(),
+            key="recs_explain_sym",
+            label_visibility="collapsed",
+        )
+        row = subset[subset["symbol"] == exp_sym].iloc[0]
+        gain_str = f"{row['expected_gain']:+.2f}%" if "expected_gain" in subset.columns else ""
+        wr_str = f" · win rate {row['win_rate']:.0%}" if "win_rate" in subset.columns and pd.notna(row.get("win_rate")) else ""
+        st.info(
+            f"**{exp_sym}** — rank #{int(row['rank'])}  {gain_str}{wr_str}\n\n"
+            f"Top drivers: **{row['explanation']}**\n\n"
+            f"↑ = feature pushed the score up (bullish signal)  ·  ↓ = feature pulled it down"
+        )
+
     # Explore a stock in the Exploration tab
     st.markdown("**Explore a stock from this list**")
     explore_col1, explore_col2 = st.columns([3, 1])

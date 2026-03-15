@@ -100,6 +100,37 @@ def _backtest_topk(
     return eq, pd.DataFrame(pick_rows)
 
 
+_FEAT_LABELS: dict[str, str] = {
+    "ret_1d":      "1-day momentum",
+    "ret_5d":      "5-day momentum",
+    "ret_20d":     "20-day momentum",
+    "rv_10d":      "10d volatility",
+    "rv_20d":      "20d volatility",
+    "range_pct":   "intraday range",
+    "gap_pct":     "overnight gap",
+    "vol_log":     "volume level",
+    "vol_z_20d":   "volume vs avg",
+    "trend_10_20": "MA trend (10/20)",
+}
+
+
+def _explain_contributions(
+    contrib_arr: np.ndarray, feature_cols: list[str], n_top: int = 3
+) -> list[str]:
+    """Return one human-readable explanation string per row (stock)."""
+    results = []
+    for row in contrib_arr:
+        top_idx = np.argsort(np.abs(row))[::-1][:n_top]
+        parts = []
+        for idx in top_idx:
+            feat = feature_cols[idx]
+            label = _FEAT_LABELS.get(feat, feat)
+            arrow = "↑" if row[idx] > 0 else "↓"
+            parts.append(f"{arrow} {label}")
+        results.append(", ".join(parts))
+    return results
+
+
 def _generate_recommendations(
     px: pd.DataFrame,
     feature_cols: list[str],
@@ -117,7 +148,14 @@ def _generate_recommendations(
         return
 
     valid = today_feat[feature_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
-    today_feat["score"] = model.predict(valid.to_numpy(dtype=np.float32))
+    arr = valid.to_numpy(dtype=np.float32)
+
+    today_feat["score"] = model.predict(arr)
+
+    # SHAP-style contributions (LightGBM native — no extra dependency)
+    contrib = model.predict(arr, pred_contrib=True)
+    today_feat["explanation"] = _explain_contributions(contrib[:, :-1], feature_cols)
+
     today_feat = today_feat.sort_values("score", ascending=False).reset_index(drop=True)
     today_feat["rank"] = today_feat.index + 1
 
@@ -127,7 +165,9 @@ def _generate_recommendations(
     today_feat["run_date"] = run_date
     today_feat["price_date"] = str(latest_date)[:10]
 
-    recs = today_feat[["symbol", "rank", "score", "close", "horizon", "run_date", "price_date"]].head(top_n)
+    recs = today_feat[
+        ["symbol", "rank", "score", "close", "horizon", "run_date", "price_date", "explanation"]
+    ].head(top_n)
     ensure_dir(rec_dir)
     recs.to_parquet(rec_dir / f"{run_date}_h{horizon}.parquet", index=False)
     print(f"[actions] H={horizon}: {len(recs)} recommendations saved -> {rec_dir}", flush=True)
