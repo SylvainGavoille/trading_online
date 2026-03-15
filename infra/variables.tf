@@ -7,26 +7,6 @@ variable "region" {
   default = "us-central1"
 }
 
-variable "vpc_network" {
-  type    = string
-  default = "default"
-}
-
-variable "vpc_subnetwork" {
-  type    = string
-  default = ""
-}
-
-variable "vpc_connector_name" {
-  type    = string
-  default = "quantum-connector"
-}
-
-variable "vpc_connector_cidr" {
-  type    = string
-  default = "10.8.0.0/28"
-}
-
 variable "job_name" {
   type    = string
   default = "quantum-daily-ml"
@@ -35,6 +15,37 @@ variable "job_name" {
 variable "scheduler_job_name" {
   type    = string
   default = "quantum-daily-ml-trigger"
+}
+
+variable "split_jobs_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "skip_price_refresh" {
+  type        = bool
+  default     = true
+  description = "Set to true to skip Yahoo Finance price download (use when Cloud Run IP is rate-limited)."
+}
+
+variable "refresh_job_name" {
+  type    = string
+  default = "quantum-daily-ml-refresh"
+}
+
+variable "pipeline_job_name" {
+  type    = string
+  default = "quantum-daily-ml-pipeline"
+}
+
+variable "refresh_scheduler_job_name" {
+  type    = string
+  default = "quantum-daily-ml-refresh-trigger"
+}
+
+variable "pipeline_scheduler_job_name" {
+  type    = string
+  default = "quantum-daily-ml-pipeline-trigger"
 }
 
 variable "runtime_service_account_id" {
@@ -50,47 +61,16 @@ variable "scheduler_service_account_id" {
 variable "bucket_name" {
   type        = string
   description = "Global-unique GCS bucket name for pipeline data and outputs."
+
+  validation {
+    condition     = trimspace(var.bucket_name) != "" && !startswith(var.bucket_name, "your-unique-")
+    error_message = "bucket_name must be set to a real GCS bucket name, not the example placeholder."
+  }
 }
 
 variable "container_image" {
   type        = string
   description = "Container image URI for the Cloud Run Job (Artifact Registry recommended)."
-}
-
-variable "ibkr_tws_endpoint" {
-  type        = string
-  default     = ""
-  description = "Optional IB Gateway/TWS host reachable from Cloud Run (private IP or DNS). Empty disables override."
-}
-
-variable "ibkr_port" {
-  type        = number
-  default     = 0
-  description = "Optional IB Gateway/TWS port. Set 4002/4001/7497/7496. 0 disables override."
-}
-
-variable "ibkr_username_secret_id" {
-  type        = string
-  default     = ""
-  description = "Optional Secret Manager secret ID containing IBKR username."
-}
-
-variable "ibkr_password_secret_id" {
-  type        = string
-  default     = ""
-  description = "Optional Secret Manager secret ID containing IBKR password."
-}
-
-variable "ibkr_username_secret_version" {
-  type        = string
-  default     = "latest"
-  description = "Secret version for ibkr_username_secret_id."
-}
-
-variable "ibkr_password_secret_version" {
-  type        = string
-  default     = "latest"
-  description = "Secret version for ibkr_password_secret_id."
 }
 
 variable "scheduler_cron" {
@@ -103,9 +83,24 @@ variable "scheduler_time_zone" {
   default = "America/New_York"
 }
 
+variable "refresh_scheduler_cron" {
+  type    = string
+  default = "20 22 * * 1-5"
+}
+
+variable "pipeline_scheduler_cron" {
+  type    = string
+  default = "50 22 * * 1-5"
+}
+
 variable "price_refresh_days" {
   type    = number
   default = 7
+}
+
+variable "price_backfill_days" {
+  type    = number
+  default = 365
 }
 
 variable "pipeline_lookback_days" {
@@ -115,12 +110,12 @@ variable "pipeline_lookback_days" {
 
 variable "pipeline_horizons" {
   type    = list(number)
-  default = [2, 5, 10, 21]
+  default = [5, 10]
 }
 
 variable "pipeline_categories" {
   type    = list(string)
-  default = ["long_premium", "short_premium"]
+  default = ["long_premium"]
 }
 
 variable "pipeline_topk" {
@@ -143,9 +138,29 @@ variable "pipeline_step_days" {
   default = 20
 }
 
+variable "pipeline_run_max_minutes" {
+  type    = number
+  default = 45
+}
+
+variable "pipeline_lgbm_jobs" {
+  type    = number
+  default = 1
+}
+
 variable "job_timeout_seconds" {
   type    = number
   default = 7200
+}
+
+variable "refresh_job_timeout_seconds" {
+  type    = number
+  default = 5400
+}
+
+variable "pipeline_job_timeout_seconds" {
+  type    = number
+  default = 10800
 }
 
 variable "job_cpu" {
@@ -156,6 +171,26 @@ variable "job_cpu" {
 variable "job_memory" {
   type    = string
   default = "8Gi"
+}
+
+variable "refresh_job_cpu" {
+  type    = string
+  default = "2"
+}
+
+variable "refresh_job_memory" {
+  type    = string
+  default = "8Gi"
+}
+
+variable "pipeline_job_cpu" {
+  type    = string
+  default = "4"
+}
+
+variable "pipeline_job_memory" {
+  type    = string
+  default = "16Gi"
 }
 
 variable "job_max_retries" {

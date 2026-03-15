@@ -30,6 +30,7 @@ class TrainConfig:
     bagging_freq: int = 1
     lambda_l2: float = 1.0
     force_col_wise: bool = True      # faster histogram build for small feature counts
+    n_jobs: int = 1
 
 
 @dataclass(frozen=True)

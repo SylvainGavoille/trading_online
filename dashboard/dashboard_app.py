@@ -20,11 +20,14 @@ from typing import List, Dict, Optional, Tuple
 import yaml
 import sys
 import os
+from dotenv import load_dotenv
+
+# Load .env from project root (one level above dashboard/)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 # Add parent directory to path for local imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.data.download_history import fetch_batch, parquet_path, save_parquet
 from src.data.dynamic_stocks import get_symbol_name_map
 from src.api.ib_connector import IBClient
 from src.agents.stock_search_agent import (
@@ -40,6 +43,7 @@ from portfolio_manager import (
 )
 from risk_profile_manager import RiskProfileManager, RISK_PROFILES
 from modeling_tab import render_modeling_tab
+from gcs_data import read_price_history_from_gcs, get_gcs_data_uri, list_price_symbols_from_gcs
 
 # Page configuration
 st.set_page_config(
@@ -190,8 +194,6 @@ PERIODS = {
     "1 An": 365,
 }
 
-PARQUET_ROOT = os.path.join(os.path.dirname(__file__), "..", "price_historical")
-
 # Liste de stocks populaires par catégorie
 POPULAR_STOCKS = {
     "Tech": ["AAPL", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "AMZN", "NFLX"],
@@ -216,70 +218,18 @@ def get_last_trading_date() -> date:
     return d
 
 
-def load_from_parquet(symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
-    """Charge tous les fichiers Parquet du symbole dans la plage de dates."""
-    frames = []
-    day = start_date
-    while day <= end_date:
-        path = parquet_path(PARQUET_ROOT, day, symbol)
-        if os.path.exists(path):
-            frames.append(pd.read_parquet(path))
-        day += timedelta(days=1)
-    if not frames:
-        return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").set_index("date")
-    df.index.name = "Date"
-    df = df.rename(
-        columns={
-            "open": "Open",
-            "high": "High",
-            "low": "Low",
-            "close": "Close",
-            "volume": "Volume",
-        }
-    )
-    return df[["Open", "High", "Low", "Close", "Volume"]]
-
-
-def ensure_parquet_up_to_date(symbol: str, start_date: date, end_date: date) -> int:
-    """Télécharge les jours ouvrés manquants et les sauvegarde en Parquet."""
-    missing = []
-    day = start_date
-    while day <= end_date:
-        if day.weekday() < 5:  # jours ouvrés seulement
-            path = parquet_path(PARQUET_ROOT, day, symbol)
-            if not os.path.exists(path):
-                missing.append(day)
-        day += timedelta(days=1)
-
-    if not missing:
-        return 0
-
-    results = fetch_batch([symbol], start_date, end_date)
-    df = results.get(symbol)
-    if df is None or df.empty:
-        return 0
-
-    saved = 0
-    for day_val, group in df.groupby("date"):
-        path = parquet_path(PARQUET_ROOT, day_val, symbol)
-        save_parquet(group.reset_index(drop=True), path)
-        saved += 1
-    return saved
+def load_from_gcs(symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+    """Load OHLCV data for *symbol* from the GCS bucket."""
+    df = read_price_history_from_gcs(symbol, start_date, end_date)
+    return df if df is not None else pd.DataFrame()
 
 
 @st.cache_data(ttl=300)
 def get_stock_data(symbol: str, days: int) -> Optional[pd.DataFrame]:
-    """Charge les données depuis Parquet, en téléchargeant les jours manquants si nécessaire."""
+    """Charge les données historiques depuis GCS."""
     end_date = get_last_trading_date()
     start_date = end_date - timedelta(days=days)
-
-    # Mise à jour silencieuse si des jours manquent
-    ensure_parquet_up_to_date(symbol, start_date, end_date)
-
-    df = load_from_parquet(symbol, start_date, end_date)
+    df = load_from_gcs(symbol, start_date, end_date)
     if df is not None and not df.empty:
         return df
     return None
@@ -287,20 +237,8 @@ def get_stock_data(symbol: str, days: int) -> Optional[pd.DataFrame]:
 
 @st.cache_data(ttl=3600)
 def get_parquet_symbols() -> set:
-    """Retourne l'ensemble des symboles disponibles dans le store Parquet (lecture du dernier jour disponible)."""
-    for offset in range(7):
-        day = get_last_trading_date() - timedelta(days=offset)
-        day_dir = os.path.join(
-            PARQUET_ROOT,
-            f"year={day.year}",
-            f"month={day.month:02}",
-            f"day={day.isoformat()}",
-        )
-        if os.path.isdir(day_dir):
-            symbols = {f[:-8] for f in os.listdir(day_dir) if f.endswith(".parquet")}
-            if symbols:
-                return symbols
-    return set()
+    """Retourne l'ensemble des symboles disponibles dans GCS (dernier jour disponible)."""
+    return list_price_symbols_from_gcs()
 
 
 @st.cache_data(ttl=3600)

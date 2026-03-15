@@ -111,7 +111,7 @@ def train_ranker(
         lambda_l2=train_cfg.lambda_l2,
         force_col_wise=train_cfg.force_col_wise,
         random_state=42,
-        n_jobs=-1,
+        n_jobs=max(1, int(train_cfg.n_jobs)),
         verbose=-1,
     )
 

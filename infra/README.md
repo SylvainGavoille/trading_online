@@ -3,8 +3,10 @@
 This Terraform stack deploys:
 
 - A GCS bucket that stores `price_historical/`, `options_snapshot/`, `portfolio_daily/`, `ml_output/`
-- A Cloud Run Job that runs daily data refresh + `src/ml/pipeline.py`
-- A Cloud Scheduler trigger that executes the job every day
+- Cloud Run Job(s) for daily ML execution:
+  - legacy single job: `quantum-daily-ml` (when `split_jobs_enabled=false`)
+  - split jobs: `quantum-daily-ml-refresh` + `quantum-daily-ml-pipeline` (when `split_jobs_enabled=true`)
+- Cloud Scheduler trigger(s) for daily execution
 - Service accounts and IAM for least-privilege invocation/runtime
 
 ## 1) Build and push the job image
@@ -69,6 +71,30 @@ If Docker Desktop is not running, build remotely in GCP (no local Docker require
 ```
 
 The deploy script now auto-creates the Artifact Registry repo (`quantum` by default) if missing.
+
+## 3.1) Manual run / troubleshooting
+
+List deployed jobs first:
+
+```bash
+gcloud run jobs list --region us-central1 --project <PROJECT_ID>
+```
+
+Run split jobs (recommended):
+
+```bash
+gcloud run jobs execute quantum-daily-ml-refresh --region us-central1 --project <PROJECT_ID> --wait
+gcloud run jobs execute quantum-daily-ml-pipeline --region us-central1 --project <PROJECT_ID> --wait
+```
+
+In split mode, the pipeline job is configured to wait for a refresh completion marker
+written by the refresh job before starting model training.
+
+Run legacy single job (only when `split_jobs_enabled=false`):
+
+```bash
+gcloud run jobs execute quantum-daily-ml --region us-central1 --project <PROJECT_ID> --wait
+```
 
 ## 4) Dashboard access to cloud results
 

@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import sys
 import subprocess
-import os
-from io import BytesIO
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -26,8 +24,18 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.ml.utils import PORTFOLIO_DAILY_ROOT, OPTIONS_SNAPSHOT_ROOT
+from src.ml.utils import PORTFOLIO_DAILY_ROOT
 from src.ml.data.portfolio import snapshot_from_ibkr, save_portfolio_snapshot
+from gcs_data import (
+    read_portfolio_history_from_gcs,
+    read_options_coverage_from_gcs,
+    read_ml_run_status,
+    read_ml_summary_metrics,
+    read_ml_equity_curves,
+    read_ml_actions_summary,
+    read_ml_actions_equity,
+    gcs_bucket_stats,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -79,114 +87,14 @@ def _stream_subprocess(cmd: list[str], placeholder, max_lines: int = 60) -> int:
 
 
 def _read_portfolio_history() -> Optional[pd.DataFrame]:
-    """Read all portfolio_daily/ parquet files, return sorted DataFrame or None."""
-    if not PORTFOLIO_DAILY_ROOT.exists():
-        return None
-    files = list(PORTFOLIO_DAILY_ROOT.glob("**/*.parquet"))
-    if not files:
-        return None
-    try:
-        import duckdb
-
-        glob = PORTFOLIO_DAILY_ROOT.as_posix() + "/**/*.parquet"
-        df = duckdb.sql(
-            f"""
-            SELECT date, cash, buying_power, net_liq, margin_used
-            FROM read_parquet('{glob}', hive_partitioning=true)
-            ORDER BY date
-            """
-        ).df()
-        return df
-    except Exception:
-        return None
+    """Read all portfolio_daily/ parquet files from GCS, return sorted DataFrame or None."""
+    return read_portfolio_history_from_gcs()
 
 
 def _read_options_coverage() -> Optional[pd.DataFrame]:
-    """Return a DataFrame with (day, n_rows) from options_snapshot/."""
-    if not OPTIONS_SNAPSHOT_ROOT.exists():
-        return None
-    files = list(OPTIONS_SNAPSHOT_ROOT.glob("**/*.parquet"))
-    if not files:
-        return None
-    try:
-        import duckdb
+    """Return a DataFrame with (day, n_rows) from options_snapshot/ in GCS."""
+    return read_options_coverage_from_gcs()
 
-        glob = OPTIONS_SNAPSHOT_ROOT.as_posix() + "/**/*.parquet"
-        df = duckdb.sql(
-            f"""
-            SELECT day, COUNT(*) AS n_rows
-            FROM read_parquet('{glob}', hive_partitioning=true)
-            GROUP BY day ORDER BY day
-        """
-        ).df()
-        return df
-    except Exception as exc:
-        st.warning(f"⚠️ Could not read options coverage: {exc}")
-        return None
-
-
-def _read_summary_metrics() -> Optional[pd.DataFrame]:
-    path = _PROJECT_ROOT / "ml_output" / "summary_metrics.parquet"
-    if path.exists():
-        try:
-            return pd.read_parquet(path)
-        except Exception:
-            pass
-
-    gcs_root = os.getenv("ML_RESULTS_GCS_URI", "").strip()
-    if not gcs_root:
-        return None
-    return _read_parquet_from_gcs_uri(f"{gcs_root.rstrip('/')}/summary_metrics.parquet")
-
-
-def _read_equity_curves(category: str, horizon: int) -> Optional[pd.DataFrame]:
-    path = (
-        _PROJECT_ROOT
-        / "ml_output"
-        / "backtests"
-        / f"category={category}"
-        / f"h={horizon}"
-        / "fold_equity.parquet"
-    )
-    if path.exists():
-        try:
-            return pd.read_parquet(path)
-        except Exception:
-            pass
-
-    gcs_root = os.getenv("ML_RESULTS_GCS_URI", "").strip()
-    if not gcs_root:
-        return None
-    gcs_path = (
-        f"{gcs_root.rstrip('/')}/backtests/category={category}/h={horizon}/fold_equity.parquet"
-    )
-    return _read_parquet_from_gcs_uri(gcs_path)
-
-
-def _read_parquet_from_gcs_uri(uri: str) -> Optional[pd.DataFrame]:
-    """Read a parquet file from gs://... URI using ADC credentials."""
-    if not uri.startswith("gs://"):
-        return None
-
-    try:
-        from google.cloud import storage
-    except Exception:
-        return None
-
-    without_scheme = uri[len("gs://") :]
-    if "/" not in without_scheme:
-        return None
-    bucket_name, blob_name = without_scheme.split("/", 1)
-
-    try:
-        client = storage.Client()
-        blob = client.bucket(bucket_name).blob(blob_name)
-        if not blob.exists(client):
-            return None
-        data = blob.download_as_bytes()
-        return pd.read_parquet(BytesIO(data))
-    except Exception:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -265,11 +173,13 @@ def _render_options_snapshot() -> None:
     st.subheader("📊 Options Snapshot")
 
     st.info(
-        "**What this does:** Queries IBKR for option chains (bid, ask, IV, delta, "
-        "gamma, vega, theta) of the **top-N most liquid symbols** from today's "
-        "`price_historical/` data. Results are saved to `options_snapshot/` "
-        "partitioned by date.  \n\n"
-        "Typical run time: **5–15 minutes** for 50 symbols. Run daily after market close."
+        "**What this does:** Fetches option chains (bid, ask, IV, volume, OI) "
+        "from **Yahoo Finance** for the **top-N most liquid symbols** based on "
+        "`price_historical/` volume. Greeks (delta/gamma/vega/theta) are not "
+        "available from Yahoo and are always `None`.  \n\n"
+        "Results are saved to `options_snapshot/` partitioned by date.  \n\n"
+        "Typical run time: **5–15 minutes** for 30 symbols. "
+        "In production this runs automatically via the GCP Cloud Run job at 22:20 NY time."
     )
 
     # Config widgets
@@ -478,22 +388,63 @@ def _render_ml_pipeline() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _render_equity_chart(eq: pd.DataFrame, title: str, chart_key: str) -> None:
+    """Render a cumulative PnL chart + 3 summary metrics for an equity DataFrame."""
+    import plotly.graph_objects as go
+
+    eq = eq.copy()
+    eq["date"] = pd.to_datetime(eq["date"])
+    eq["cum_pnl"] = eq["pnl"].cumsum()
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=eq["date"],
+            y=eq["cum_pnl"],
+            mode="lines",
+            name="Cumulative PnL",
+            line={"color": "#00b4d8"},
+        )
+    )
+    fig.update_layout(
+        title=title,
+        xaxis_title="Date",
+        yaxis_title="PnL ($)",
+        margin={"t": 40, "b": 0},
+    )
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total PnL", f"${eq['pnl'].sum():+,.0f}")
+    c2.metric(
+        "Annualised Sharpe",
+        f"{(eq['pnl'].mean() / (eq['pnl'].std(ddof=1) + 1e-9)) * (252 ** 0.5):.2f}",
+    )
+    c3.metric("Total Trades", f"{int(eq['n_trades'].sum()):,}")
+
+
 def _render_results() -> None:
     st.subheader("📈 Results")
 
     import plotly.express as px
-    import plotly.graph_objects as go
+
+    # ── Last run status ────────────────────────────────────────────────────
+    status = read_ml_run_status()
+    if status:
+        elapsed = status.get("elapsed_minutes", "?")
+        stopped = status.get("stopped_early", False)
+        combos = status.get("completed_combos", [])
+        badge = "⚠️ stopped early" if stopped else "✅ completed"
+        st.caption(
+            f"Last GCP run: {badge} · {elapsed:.1f} min · combos: {', '.join(combos) or '—'}"
+        )
 
     # ── Portfolio history ──────────────────────────────────────────────────
     with st.expander("📋 Portfolio History", expanded=True):
         df_port = _read_portfolio_history()
         if df_port is None or df_port.empty:
-            st.caption("No portfolio snapshots yet — run Portfolio Snapshot first.")
+            st.caption("No portfolio snapshots in GCS yet.")
         else:
             df_port["date"] = pd.to_datetime(df_port["date"])
-            cols_avail = [
-                c for c in ["net_liq", "buying_power", "cash"] if c in df_port.columns
-            ]
+            cols_avail = [c for c in ["net_liq", "buying_power", "cash"] if c in df_port.columns]
             if cols_avail:
                 fig = px.line(
                     df_port,
@@ -502,7 +453,7 @@ def _render_results() -> None:
                     title="Account History",
                     labels={"value": "USD", "date": "Date", "variable": ""},
                 )
-                fig.update_layout(margin=dict(t=35, b=0), legend=dict(orientation="h"))
+                fig.update_layout(margin={"t": 35, "b": 0}, legend={"orientation": "h"})
                 st.plotly_chart(fig, use_container_width=True, key="res_portfolio_history_chart")
             c1, c2, c3 = st.columns(3)
             last = df_port.iloc[-1]
@@ -514,7 +465,7 @@ def _render_results() -> None:
     with st.expander("📊 Options Snapshot Coverage", expanded=False):
         cov = _read_options_coverage()
         if cov is None or cov.empty:
-            st.caption("No options snapshots yet — run Options Snapshot first.")
+            st.caption("No options snapshots in GCS yet.")
         else:
             fig = px.bar(
                 cov.tail(30),
@@ -523,101 +474,91 @@ def _render_results() -> None:
                 title="Option rows per day (last 30)",
                 labels={"day": "Date", "n_rows": "Rows"},
             )
-            fig.update_layout(margin=dict(t=35, b=0))
+            fig.update_layout(margin={"t": 35, "b": 0})
             st.plotly_chart(fig, use_container_width=True, key="res_options_coverage_chart")
+            st.caption(f"{len(cov)} days collected · latest: {cov.iloc[-1]['day']}")
 
-    # ── ML output ─────────────────────────────────────────────────────────
-    st.markdown("#### ML Pipeline Results")
+    # ── Options ML pipeline results ────────────────────────────────────────
+    st.markdown("#### Options ML Pipeline")
 
-    summary = st.session_state.get("ml_summary_cache") or _read_summary_metrics()
+    summary = st.session_state.get("ml_summary_cache") or read_ml_summary_metrics()
     if summary is None:
-        st.info("No ML results yet — run the ML Pipeline first.")
-        return
+        st.info(
+            "No options ML results in GCS yet. "
+            "They appear after the first Cloud Run job completes."
+        )
+    else:
+        st.session_state["ml_summary_cache"] = summary
 
-    st.session_state["ml_summary_cache"] = summary
-
-    # Summary metrics table
-    with st.expander("📊 Fold Metrics", expanded=True):
         display_cols = [
-            c
-            for c in [
-                "category",
-                "horizon",
-                "fold",
-                "test_start",
-                "test_end",
-                "total_pnl",
-                "sharpe_proxy",
-                "n_trades",
-                "n_days",
-            ]
+            c for c in
+            ["category", "horizon", "fold", "test_start", "test_end",
+             "total_pnl", "sharpe_proxy", "n_trades", "n_days"]
             if c in summary.columns
         ]
-        st.dataframe(
-            summary[display_cols]
-            .sort_values(["category", "horizon", "test_end"])
-            .style.format(
-                {
-                    "total_pnl": "{:+,.0f}",
-                    "sharpe_proxy": "{:.2f}",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
+        with st.expander("📊 Fold Metrics", expanded=True):
+            st.dataframe(
+                summary[display_cols]
+                .sort_values(["category", "horizon", "test_end"])
+                .style.format({"total_pnl": "{:+,.0f}", "sharpe_proxy": "{:.2f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
 
-    # Aggregate metrics
-    if {"total_pnl", "sharpe_proxy", "n_trades"}.issubset(summary.columns):
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total PnL (all folds)", f"${summary['total_pnl'].sum():+,.0f}")
-        c2.metric("Avg Sharpe", f"{summary['sharpe_proxy'].mean():.2f}")
-        c3.metric("Total Trades", f"{int(summary['n_trades'].sum()):,}")
-        c4.metric("Folds evaluated", len(summary))
+        if {"total_pnl", "sharpe_proxy", "n_trades"}.issubset(summary.columns):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total PnL (all folds)", f"${summary['total_pnl'].sum():+,.0f}")
+            c2.metric("Avg Sharpe", f"{summary['sharpe_proxy'].mean():.2f}")
+            c3.metric("Total Trades", f"{int(summary['n_trades'].sum()):,}")
+            c4.metric("Folds evaluated", len(summary))
+
+        st.markdown("**Equity Curves**")
+        combos = summary[["category", "horizon"]].drop_duplicates()
+        sel_c1, sel_c2 = st.columns(2)
+        sel_cat = sel_c1.selectbox("Category", combos["category"].unique().tolist(), key="res_cat")
+        sel_h = sel_c2.selectbox(
+            "Horizon", sorted(combos["horizon"].unique().tolist()), key="res_h"
+        )
+        eq = read_ml_equity_curves(sel_cat, sel_h)
+        if eq is None:
+            st.caption(f"No equity data for {sel_cat} H={sel_h}.")
+        else:
+            _render_equity_chart(eq, f"Cumulative PnL — {sel_cat}  H={sel_h}", "res_equity_chart")
 
     st.divider()
 
-    # Equity curves
-    st.markdown("#### Equity Curves")
-    combos = summary[["category", "horizon"]].drop_duplicates()
-    sel_cols = st.columns(2)
-    sel_cat = sel_cols[0].selectbox(
-        "Category", combos["category"].unique().tolist(), key="res_cat"
-    )
-    sel_h = sel_cols[1].selectbox(
-        "Horizon", sorted(combos["horizon"].unique().tolist()), key="res_h"
-    )
+    # ── Actions pipeline results ───────────────────────────────────────────
+    st.markdown("#### Actions Pipeline (price-only)")
 
-    eq = _read_equity_curves(sel_cat, sel_h)
-    if eq is None:
-        st.caption(f"No equity data for {sel_cat} H={sel_h}.")
+    actions = st.session_state.get("ml_actions_cache") or read_ml_actions_summary()
+    if actions is None:
+        st.info("No actions pipeline results in GCS yet.")
     else:
-        eq["date"] = pd.to_datetime(eq["date"])
-        eq["cum_pnl"] = eq["pnl"].cumsum()
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=eq["date"],
-                y=eq["cum_pnl"],
-                mode="lines",
-                name="Cumulative PnL",
-                line=dict(color="#00b4d8"),
-            )
-        )
-        fig.update_layout(
-            title=f"Cumulative PnL — {sel_cat}  H={sel_h}",
-            xaxis_title="Date",
-            yaxis_title="PnL ($)",
-            margin=dict(t=40, b=0),
-        )
-        st.plotly_chart(fig, use_container_width=True, key="res_equity_curve_chart")
+        st.session_state["ml_actions_cache"] = actions
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total PnL", f"${eq['pnl'].sum():+,.0f}")
-        c2.metric(
-            "Avg Sharpe",
-            f"{(eq['pnl'].mean() / (eq['pnl'].std(ddof=1) + 1e-9)) * (252**0.5):.2f}",
-        )
-        c3.metric("Total Trades", f"{int(eq['n_trades'].sum()):,}")
+        act_cols = [
+            c for c in ["horizon", "fold", "test_start", "test_end",
+                         "total_pnl", "sharpe_proxy", "n_trades"]
+            if c in actions.columns
+        ]
+        with st.expander("📊 Actions Fold Metrics", expanded=False):
+            st.dataframe(
+                actions[act_cols].sort_values(["horizon", "test_end"])
+                .style.format({"total_pnl": "{:+,.0f}", "sharpe_proxy": "{:.2f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        if "horizon" in actions.columns:
+            horizons_available = sorted(actions["horizon"].unique().tolist())
+            sel_ah = st.selectbox("Horizon", horizons_available, key="res_act_h")
+            eq_act = read_ml_actions_equity(sel_ah)
+            if eq_act is None:
+                st.caption(f"No equity data for H={sel_ah}.")
+            else:
+                _render_equity_chart(
+                    eq_act, f"Actions Cumulative PnL — H={sel_ah}", "res_actions_equity_chart"
+                )
 
 
 # ---------------------------------------------------------------------------

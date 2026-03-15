@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 import json
 import os
 
+from gcs_data import read_price_history_from_gcs
+
 _ib_client = None
 
 
@@ -191,43 +193,27 @@ class PortfolioManager:
 
     def get_current_prices(self) -> Dict[str, float]:
         """
-        Récupère les prix actuels de toutes les positions.
-        Priorité : store Parquet (EOD local) → avg_price en fallback.
+        Récupère les prix actuels de toutes les positions depuis GCS.
+        Fallback : avg_price si GCS n'a pas de données.
         """
-        import pandas as pd
         from datetime import date, timedelta
 
         prices = {}
         end_d = date.today() - timedelta(days=1)
         start_d = end_d - timedelta(days=7)
 
-        parquet_root = os.path.join(os.path.dirname(__file__), "..", "price_historical")
-
         for position in self.positions:
             symbol = position["symbol"]
             fallback = position["avg_price"]
 
-            # --- Parquet (fiable, EOD) ---
             try:
-                from src.data.download_history import parquet_path as _parquet_path
-
-                frames = []
-                day = start_d
-                while day <= end_d:
-                    path = _parquet_path(parquet_root, day, symbol)
-                    if os.path.exists(path):
-                        frames.append(pd.read_parquet(path))
-                    day += timedelta(days=1)
-                if frames:
-                    df_p = pd.concat(frames, ignore_index=True)
-                    df_p["date"] = pd.to_datetime(df_p["date"])
-                    df_p = df_p.sort_values("date")
-                    prices[symbol] = float(df_p["close"].iloc[-1])
+                gcs_df = read_price_history_from_gcs(symbol, start_d, end_d)
+                if gcs_df is not None and not gcs_df.empty and "Close" in gcs_df.columns:
+                    prices[symbol] = float(gcs_df["Close"].iloc[-1])
                     continue
             except Exception as e:
-                print(f"Parquet prix manquant pour {symbol}: {e}")
+                print(f"GCS prix manquant pour {symbol}: {e}")
 
-            # --- Fallback prix d'achat ---
             prices[symbol] = fallback
 
         return prices

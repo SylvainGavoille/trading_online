@@ -86,18 +86,6 @@ def parquet_path(root: str, day: date, symbol: str) -> str:
     )
 
 
-def get_already_fetched(root: str) -> set[str]:
-    """Retourne les symboles qui ont deja au moins un fichier Parquet."""
-    fetched = set()
-    if not os.path.exists(root):
-        return fetched
-    for dirpath, _, filenames in os.walk(root):
-        for fname in filenames:
-            if fname.endswith(".parquet"):
-                fetched.add(fname[:-len(".parquet")])
-    return fetched
-
-
 def save_parquet(df: pd.DataFrame, path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     df.to_parquet(path, index=False)
@@ -204,12 +192,6 @@ def main() -> None:
     symbols = get_symbols(db_path, args.all_symbols)
     print(f"[SYMBOLES] {len(symbols)} trouves ({'tous' if args.all_symbols else 'verifies IBKR'})")
 
-    if args.skip_existing:
-        already = get_already_fetched(args.out)
-        before = len(symbols)
-        symbols = [s for s in symbols if s not in already]
-        print(f"[SKIP]    {before - len(symbols)} deja presents -> {len(symbols)} restants")
-
     if not symbols:
         print("[DONE] Rien a telecharger.")
         return
@@ -221,6 +203,7 @@ def main() -> None:
     print(f"[BATCH]   {n_batches} batches de {args.batch_size} symboles max")
 
     ok = err = empty = 0
+    existing_files = 0
     processed = 0
 
     for b_idx, batch in enumerate(batches, 1):
@@ -233,10 +216,18 @@ def main() -> None:
                 empty += 1
             else:
                 try:
+                    wrote_any = False
                     for day, group in df.groupby("date"):
                         path = parquet_path(args.out, day, sym)
+                        if args.skip_existing and os.path.exists(path):
+                            existing_files += 1
+                            continue
                         save_parquet(group.reset_index(drop=True), path)
-                    ok += 1
+                        wrote_any = True
+                    if wrote_any:
+                        ok += 1
+                    else:
+                        empty += 1
                 except Exception as exc:
                     print(f"[ERR save] {sym}: {exc}")
                     err += 1
@@ -251,7 +242,7 @@ def main() -> None:
         if b_idx < n_batches:
             time.sleep(args.pause)
 
-    print(f"\n[DONE] ok={ok}  vide={empty}  erreurs={err}")
+    print(f"\n[DONE] ok={ok}  vide={empty}  erreurs={err}  deja-existants={existing_files}")
     print(f"[SORTIE] {args.out}/")
 
 

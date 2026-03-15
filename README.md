@@ -110,6 +110,43 @@ uv run streamlit run dashboard_app.py
 
 ---
 
+## Scripts de Deploiement (GCP)
+
+Depuis la racine du repo (`C:\Users\sylva\Documents\Sources\trading_online`) :
+
+```powershell
+# Aide
+.\scripts\deploy.ps1 -Target help
+
+# Build image dans GCP (Cloud Build)
+.\scripts\deploy.ps1 -Target cloud-build -ProjectId sylvain-488510
+
+# Terraform only (infra Cloud Run / Scheduler / VPC connector)
+.\scripts\deploy.ps1 -Target tf-only -ProjectId sylvain-488510 -AutoApprove
+
+# Setup complet VM IB Gateway (+ secrets, firewall, bootstrap logiciel)
+.\scripts\deploy.ps1 -Target ib-gateway-setup -ProjectId sylvain-488510 -Region us-central1 -Zone us-central1-b -IbVmName ib-gateway-vm -IbApiPort 4002 -IbSourceRanges 10.8.0.0/28 -InstallIbSoftware -TunnelThroughIap -AutoApprove
+
+# Lister les jobs Cloud Run disponibles
+gcloud run jobs list --region us-central1 --project sylvain-488510
+
+# Executer les jobs Cloud Run (mode split recommande)
+gcloud run jobs execute quantum-daily-ml-refresh --region us-central1 --project sylvain-488510 --wait
+gcloud run jobs execute quantum-daily-ml-pipeline --region us-central1 --project sylvain-488510 --wait
+
+# Mode legacy (job unique), seulement si split_jobs_enabled=false dans Terraform
+gcloud run jobs execute quantum-daily-ml --region us-central1 --project sylvain-488510 --wait
+
+# Verifier les donnees generees
+gcloud storage ls -r gs://quantum-ml-bucket/price_historical/**/*.parquet --project=sylvain-488510
+gcloud storage ls -r gs://quantum-ml-bucket/options_snapshot/**/*.parquet --project=sylvain-488510
+```
+
+Documentation associee:
+
+- `scripts/deploy_ib_gateway.md`
+- `docs/IBKR_VM_DOCUMENTATION.md`
+
 ## 💡 Options Avancées
 
 ### Option 1 : Ollama (Par défaut - 0$ API)

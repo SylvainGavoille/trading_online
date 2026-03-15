@@ -1,6 +1,7 @@
 """Shared helpers and default path constants."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    import duckdb as _duckdb
+    import duckdb as _duckdb  # used by duckdb_scan signature
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -20,6 +21,43 @@ PROJECT_ROOT          = Path(__file__).resolve().parents[2]
 PRICE_HISTORICAL_ROOT = PROJECT_ROOT / "price_historical"
 OPTIONS_SNAPSHOT_ROOT = PROJECT_ROOT / "options_snapshot"
 PORTFOLIO_DAILY_ROOT  = PROJECT_ROOT / "portfolio_daily"
+
+
+# ---------------------------------------------------------------------------
+# GCS / DuckDB helpers
+# ---------------------------------------------------------------------------
+
+
+def gcs_data_uri() -> str:
+    """Return GCS_DATA_URI env var (e.g. 'gs://quantum-ml-bucket'), or ''."""
+    return os.environ.get("GCS_DATA_URI", "").strip().rstrip("/")
+
+
+def gcs_mount_path() -> str:
+    """Return GCS_MOUNT_PATH env var (GCSFuse mount root, e.g. '/mnt/quantum'), or ''."""
+    return os.environ.get("GCS_MOUNT_PATH", "").strip().rstrip("/")
+
+
+def fs_path_to_gcs_uri(path: str | Path) -> str | None:
+    """
+    Convert a GCSFuse filesystem path to a gs:// URI.
+
+    Requires both GCS_DATA_URI and GCS_MOUNT_PATH to be set.
+    Returns None if the conversion is not possible.
+
+    Example:
+        /mnt/quantum/price_historical/year=2025/month=01/day=2025-01-01/*.parquet
+        → gs://quantum-ml-bucket/price_historical/year=2025/month=01/day=2025-01-01/*.parquet
+    """
+    gcs_uri = gcs_data_uri()
+    mount = gcs_mount_path()
+    if not gcs_uri or not mount:
+        return None
+    path_str = str(path)
+    if not path_str.startswith(mount):
+        return None
+    rel = path_str[len(mount):].lstrip("/")
+    return f"{gcs_uri}/{rel}"
 
 
 # ---------------------------------------------------------------------------

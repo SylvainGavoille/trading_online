@@ -118,6 +118,7 @@ options_collector:
   max_expirations: 3         # nearest N expiration dates per symbol
   batch_size: 20             # option snapshot requests sent concurrently
   batch_delay_s: 1.0         # seconds to wait between batches (IBKR pacing)
+  option_chain_timeout_s: 25.0  # secdef timeout before fallback expirations/strikes
 
 # ML Options Optimizer
 # Controls the ILP (PuLP) / greedy trade selection layer in src/ml/pipeline.py.

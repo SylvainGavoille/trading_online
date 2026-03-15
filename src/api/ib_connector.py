@@ -108,6 +108,7 @@ class IBClient(EWrapper, EClient):
         # Option market data snapshot state (reqMktData snapshot on OPT contracts)
         self._mktdata_results: Dict[int, dict] = {}
         self._mktdata_events: Dict[int, threading.Event] = {}
+        self._mktdata_errors: Dict[int, dict] = {}
 
         # Auto-reconnect watchdog
         self._thread: threading.Thread = None
@@ -376,6 +377,12 @@ class IBClient(EWrapper, EClient):
 
         # Only unblock pending waiters when the error is truly fatal for that request.
         if errorCode in self._FATAL_ERROR_CODES or reqId < 0:
+            if reqId in self._mktdata_events:
+                with self._lock:
+                    self._mktdata_errors[reqId] = {
+                        "code": int(errorCode),
+                        "message": str(errorString),
+                    }
             if reqId in self._opt_chain_events:
                 self._opt_chain_events[reqId].set()
             if reqId in self._mktdata_events:
@@ -1226,7 +1233,7 @@ class IBClient(EWrapper, EClient):
         self,
         symbol: str,
         con_id: int,
-        timeout: float = 15.0,
+        timeout: float = 8.0,
     ) -> dict:
         """
         Fetch available expirations and strikes for an underlying's options.
@@ -1257,7 +1264,7 @@ class IBClient(EWrapper, EClient):
             self._opt_chain_events[req_id] = event
 
         self.reqSecDefOptParams(req_id, symbol, "", "STK", con_id)
-        event.wait(timeout=timeout)
+        timed_out = not event.wait(timeout=timeout)
 
         with self._lock:
             raw = self._opt_chain_params.pop(req_id, {})
@@ -1267,6 +1274,7 @@ class IBClient(EWrapper, EClient):
             "expirations": sorted(raw.get("expirations", [])),
             "strikes": sorted(raw.get("strikes", [])),
             "multiplier": raw.get("multiplier", "100"),
+            "timed_out": timed_out,
         }
 
     def securityDefinitionOptionalParameter(
@@ -1338,6 +1346,7 @@ class IBClient(EWrapper, EClient):
                 "und_price": None,
             }
             self._mktdata_events[req_id] = event
+            self._mktdata_errors[req_id] = {"code": None, "message": ""}
 
         # Empty genericTickList: snapshot=True is incompatible with generic
         # ticks (causes Error 321).  bid/ask/last come via tickPrice,
@@ -1357,7 +1366,10 @@ class IBClient(EWrapper, EClient):
         with self._lock:
             result = self._mktdata_results.pop(req_id, {})
             self._mktdata_events.pop(req_id, None)
-
+            err = self._mktdata_errors.pop(req_id, {"code": None, "message": ""})
+        result["timed_out"] = timed_out
+        result["error_code"] = err.get("code")
+        result["error_message"] = err.get("message", "")
         return result
 
     def tickOptionComputation(
