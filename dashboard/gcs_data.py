@@ -30,9 +30,15 @@ def _parse_gs_uri(uri: str) -> tuple[str, str]:
     return without_scheme, ""
 
 
+_gcs_storage_client = None
+
+
 def _gcs_client():
-    from google.cloud import storage  # type: ignore
-    return storage.Client()
+    global _gcs_storage_client
+    if _gcs_storage_client is None:
+        from google.cloud import storage  # type: ignore
+        _gcs_storage_client = storage.Client()
+    return _gcs_storage_client
 
 
 # ---------------------------------------------------------------------------

@@ -457,8 +457,7 @@ def _render_recommendations() -> None:
     st.markdown("#### 🎯 Today's Stock Recommendations")
 
     if "ml_recs_cache" not in st.session_state:
-        with st.spinner("Loading recommendations from GCS…"):
-            st.session_state["ml_recs_cache"] = read_latest_recommendations()
+        st.session_state["ml_recs_cache"] = read_latest_recommendations()
     recs = st.session_state["ml_recs_cache"]
 
     if recs is None or recs.empty:
@@ -599,8 +598,6 @@ def _render_recommendations() -> None:
 
 def _render_results() -> None:
     st.subheader("📈 Results")
-
-    _render_recommendations()
 
     with st.expander("ℹ️ How to read this page", expanded=False):
         st.markdown("""
@@ -809,6 +806,9 @@ Results are cached for the session. To reload fresh data from GCS, **reload the 
                 _render_equity_chart(
                     eq_act, f"Actions Cumulative PnL — H={sel_ah}", "res_actions_equity_chart"
                 )
+
+    st.divider()
+    _render_recommendations()
 
 
 # ---------------------------------------------------------------------------
