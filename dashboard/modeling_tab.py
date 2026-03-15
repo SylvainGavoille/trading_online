@@ -456,11 +456,10 @@ def _render_recommendations() -> None:
     """Show today's stock recommendations from the actions pipeline."""
     st.markdown("#### 🎯 Today's Stock Recommendations")
 
-    recs = st.session_state.get("ml_recs_cache")
-    if recs is None:
+    if "ml_recs_cache" not in st.session_state:
         with st.spinner("Loading recommendations from GCS…"):
-            recs = read_latest_recommendations()
-        st.session_state["ml_recs_cache"] = recs
+            st.session_state["ml_recs_cache"] = read_latest_recommendations()
+    recs = st.session_state["ml_recs_cache"]
 
     if recs is None or recs.empty:
         st.info(
@@ -518,10 +517,9 @@ def _render_recommendations() -> None:
 
     # Merge historical hit rates from backtest picks
     picks_key = f"ml_picks_cache_h{sel_h}"
-    picks_df = st.session_state.get(picks_key)
-    if picks_df is None:
-        picks_df = read_ml_actions_picks(sel_h)
-        st.session_state[picks_key] = picks_df  # cache even if None
+    if picks_key not in st.session_state:
+        st.session_state[picks_key] = read_ml_actions_picks(sel_h)
+    picks_df = st.session_state[picks_key]
 
     if picks_df is not None and not picks_df.empty:
         hr = _compute_hit_rates(picks_df)
@@ -532,7 +530,7 @@ def _render_recommendations() -> None:
     sector_data = st.session_state.get(sector_key)
 
     if sector_data is None:
-        if st.button("🏢 Load sector & industry info (Yahoo Finance)", key="btn_load_sector"):
+        if st.button("🏢 Load sector & industry info (Yahoo Finance)", key=f"btn_load_sector_h{sel_h}"):
             with st.spinner(f"Fetching sector info for {len(subset)} stocks…"):
                 sector_data = _fetch_sector_info(subset["symbol"].tolist())
                 st.session_state[sector_key] = sector_data
