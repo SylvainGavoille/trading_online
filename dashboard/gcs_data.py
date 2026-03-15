@@ -158,10 +158,17 @@ def read_options_coverage_from_gcs() -> Optional[pd.DataFrame]:
 
 
 def _ml_bucket_prefix() -> tuple[str, str] | None:
-    """Return (bucket, ml_output_prefix) from ML_RESULTS_GCS_URI, or None."""
+    """Return (bucket, ml_output_prefix) from ML_RESULTS_GCS_URI.
+
+    Falls back to GCS_DATA_URI + /ml_output when ML_RESULTS_GCS_URI is not set,
+    so only one env var (GCS_DATA_URI) is strictly required.
+    """
     uri = os.getenv("ML_RESULTS_GCS_URI", "").strip().rstrip("/")
     if not uri:
-        return None
+        root = get_gcs_data_uri()
+        if not root:
+            return None
+        uri = f"{root}/ml_output"
     return _parse_gs_uri(uri)
 
 
@@ -237,7 +244,8 @@ def gcs_bucket_stats() -> dict:
       gcs_data_uri, ml_results_uri
     """
     root_uri = get_gcs_data_uri()
-    ml_uri = os.getenv("ML_RESULTS_GCS_URI", "").strip().rstrip("/")
+    bp = _ml_bucket_prefix()
+    ml_uri = f"gs://{bp[0]}/{bp[1]}" if bp else ""
 
     result: dict = {
         "gcs_data_uri": root_uri,
@@ -276,8 +284,8 @@ def gcs_bucket_stats() -> dict:
     )
 
     # ml_output
-    if ml_uri:
-        ml_bucket, ml_prefix = _parse_gs_uri(ml_uri)
+    if bp:
+        ml_bucket, ml_prefix = bp
         summary_blob = f"{ml_prefix}/summary_metrics.parquet".lstrip("/")
         result["ml_summary_exists"] = bool(gcs_download_blob(ml_bucket, summary_blob) is not None)
         result["ml_run_status"] = read_ml_run_status()

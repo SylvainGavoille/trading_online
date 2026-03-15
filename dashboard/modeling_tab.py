@@ -34,7 +34,6 @@ from gcs_data import (
     read_ml_equity_curves,
     read_ml_actions_summary,
     read_ml_actions_equity,
-    gcs_bucket_stats,
 )
 
 
@@ -413,12 +412,13 @@ def _render_equity_chart(eq: pd.DataFrame, title: str, chart_key: str) -> None:
     )
     st.plotly_chart(fig, use_container_width=True, key=chart_key)
     c1, c2, c3 = st.columns(3)
+    trades_col = "n_trades" if "n_trades" in eq.columns else "n_picks"
     c1.metric("Total PnL", f"${eq['pnl'].sum():+,.0f}")
     c2.metric(
         "Annualised Sharpe",
         f"{(eq['pnl'].mean() / (eq['pnl'].std(ddof=1) + 1e-9)) * (252 ** 0.5):.2f}",
     )
-    c3.metric("Total Trades", f"{int(eq['n_trades'].sum()):,}")
+    c3.metric("Total Trades", f"{int(eq[trades_col].sum()):,}" if trades_col in eq.columns else "—")
 
 
 def _render_results() -> None:
@@ -538,7 +538,7 @@ def _render_results() -> None:
 
         act_cols = [
             c for c in ["horizon", "fold", "test_start", "test_end",
-                         "total_pnl", "sharpe_proxy", "n_trades"]
+                         "total_pnl", "sharpe_proxy", "n_picks", "n_days"]
             if c in actions.columns
         ]
         with st.expander("📊 Actions Fold Metrics", expanded=False):
@@ -569,23 +569,19 @@ def _render_results() -> None:
 def render_modeling_tab(ib_client) -> None:
     st.header("🤖 Modeling")
 
-    tab_port, tab_opt, tab_pipe, tab_res = st.tabs(
+    tab_res, tab_port, tab_opt = st.tabs(
         [
+            "📈 Results",
             "📋 Portfolio Snapshot",
             "📊 Options Snapshot",
-            "🚀 ML Pipeline",
-            "📈 Results",
         ]
     )
+
+    with tab_res:
+        _render_results()
 
     with tab_port:
         _render_portfolio_snapshot(ib_client)
 
     with tab_opt:
         _render_options_snapshot()
-
-    with tab_pipe:
-        _render_ml_pipeline()
-
-    with tab_res:
-        _render_results()
