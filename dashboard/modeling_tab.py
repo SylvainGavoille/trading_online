@@ -481,7 +481,9 @@ def _render_results() -> None:
     # ── Options ML pipeline results ────────────────────────────────────────
     st.markdown("#### Options ML Pipeline")
 
-    summary = st.session_state.get("ml_summary_cache") or read_ml_summary_metrics()
+    summary = st.session_state.get("ml_summary_cache")
+    if summary is None:
+        summary = read_ml_summary_metrics()
     if summary is None:
         st.info(
             "No options ML results in GCS yet. "
@@ -530,7 +532,9 @@ def _render_results() -> None:
     # ── Actions pipeline results ───────────────────────────────────────────
     st.markdown("#### Actions Pipeline (price-only)")
 
-    actions = st.session_state.get("ml_actions_cache") or read_ml_actions_summary()
+    actions = st.session_state.get("ml_actions_cache")
+    if actions is None:
+        actions = read_ml_actions_summary()
     if actions is None:
         st.info("No actions pipeline results in GCS yet.")
     else:
