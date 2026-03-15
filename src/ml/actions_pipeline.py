@@ -69,26 +69,68 @@ def _train_regressor(
 
 def _backtest_topk(
     dtest: pd.DataFrame, model: lgb.LGBMRegressor, feature_cols: list[str], topk: int
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Returns (equity_curve, daily_picks).
+
+    daily_picks columns: date, symbol, rank, score, fwd_ret
+    """
     work = dtest.copy()
     work["score"] = model.predict(work[feature_cols].to_numpy(dtype=np.float32))
-    rows = []
+    eq_rows: list[dict] = []
+    pick_rows: list[dict] = []
     for day, grp in work.groupby("date"):
-        picks = grp.sort_values("score", ascending=False).head(topk)
+        ranked = grp.sort_values("score", ascending=False).reset_index(drop=True)
+        picks = ranked.head(topk)
         if picks.empty:
             continue
-        rows.append(
-            {
+        eq_rows.append({"date": day, "n_picks": int(len(picks)), "pnl": float(picks["fwd_ret"].mean())})
+        for rank, (_, row) in enumerate(picks.iterrows(), 1):
+            pick_rows.append({
                 "date": day,
-                "n_picks": int(len(picks)),
-                "pnl": float(picks["fwd_ret"].mean()),
-            }
-        )
-    if not rows:
-        return pd.DataFrame(columns=["date", "n_picks", "pnl", "equity"])
-    eq = pd.DataFrame(rows).sort_values("date")
+                "symbol": row["symbol"],
+                "rank": rank,
+                "score": float(row["score"]),
+                "fwd_ret": float(row["fwd_ret"]),
+            })
+    if not eq_rows:
+        empty_eq = pd.DataFrame(columns=["date", "n_picks", "pnl", "equity"])
+        return empty_eq, pd.DataFrame()
+    eq = pd.DataFrame(eq_rows).sort_values("date")
     eq["equity"] = (1.0 + eq["pnl"]).cumprod()
-    return eq
+    return eq, pd.DataFrame(pick_rows)
+
+
+def _generate_recommendations(
+    px: pd.DataFrame,
+    feature_cols: list[str],
+    model: lgb.LGBMRegressor,
+    horizon: int,
+    rec_dir: Path,
+    run_date: str,
+    top_n: int = 50,
+) -> None:
+    """Score all symbols on the most recent available date and save as today's recommendations."""
+    feat = build_underlying_features(px)
+    latest_date = feat["date"].max()
+    today_feat = feat[feat["date"] == latest_date].copy()
+    if today_feat.empty:
+        return
+
+    valid = today_feat[feature_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
+    today_feat["score"] = model.predict(valid.to_numpy(dtype=np.float32))
+    today_feat = today_feat.sort_values("score", ascending=False).reset_index(drop=True)
+    today_feat["rank"] = today_feat.index + 1
+
+    close_map = px[px["date"] == latest_date].set_index("symbol")["close"]
+    today_feat["close"] = today_feat["symbol"].map(close_map)
+    today_feat["horizon"] = horizon
+    today_feat["run_date"] = run_date
+    today_feat["price_date"] = str(latest_date)[:10]
+
+    recs = today_feat[["symbol", "rank", "score", "close", "horizon", "run_date", "price_date"]].head(top_n)
+    ensure_dir(rec_dir)
+    recs.to_parquet(rec_dir / f"{run_date}_h{horizon}.parquet", index=False)
+    print(f"[actions] H={horizon}: {len(recs)} recommendations saved -> {rec_dir}", flush=True)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -158,6 +200,8 @@ def run(args: argparse.Namespace) -> None:
 
         fold_metrics = []
         fold_curves = []
+        fold_picks: list[pd.DataFrame] = []
+        last_model: lgb.LGBMRegressor | None = None
         for fold_i, (_tr_s, tr_e, te_s, te_e) in enumerate(splits, 1):
             if args.max_minutes is not None:
                 elapsed_min = (time.perf_counter() - t_pipeline_start) / 60.0
@@ -176,7 +220,7 @@ def run(args: argparse.Namespace) -> None:
                 continue
 
             model = _train_regressor(dtrain, feature_cols, args.lgbm_jobs)
-            curve = _backtest_topk(dtest, model, feature_cols, args.topk)
+            curve, picks_df = _backtest_topk(dtest, model, feature_cols, args.topk)
             if curve.empty:
                 continue
 
@@ -204,6 +248,14 @@ def run(args: argparse.Namespace) -> None:
             curve["horizon"] = horizon
             fold_curves.append(curve)
 
+            if not picks_df.empty:
+                picks_df = picks_df.copy()
+                picks_df["fold"] = fold_i
+                picks_df["horizon"] = horizon
+                fold_picks.append(picks_df)
+
+            last_model = model
+
             if hasattr(model, "booster_") and model.booster_ is not None:
                 model.booster_.save_model(str(h_models_dir / f"model_fold{fold_i}.txt"))
 
@@ -215,14 +267,23 @@ def run(args: argparse.Namespace) -> None:
         curves_df = pd.concat(fold_curves, ignore_index=True)
         metrics_df.to_parquet(h_bt_dir / "fold_metrics.parquet", index=False)
         curves_df.to_parquet(h_bt_dir / "fold_equity.parquet", index=False)
+        if fold_picks:
+            picks_all = pd.concat(fold_picks, ignore_index=True)
+            picks_all.to_parquet(h_bt_dir / "daily_picks.parquet", index=False)
         with open(h_models_dir / "feature_cols.json", "w", encoding="utf-8") as f:
             json.dump(feature_cols, f, indent=2)
         all_metrics.append(metrics_df)
+
+        # Generate today's recommendations using the most recent fold's model
+        if last_model is not None:
+            rec_dir = out_dir / "recommendations"
+            _generate_recommendations(px, feature_cols, last_model, horizon, rec_dir, args.end)
+
         print(
             f"[actions] H={horizon}: folds={len(metrics_df)} done in {time.time() - t0:.1f}s",
             flush=True,
         )
-        del table, metrics_df, curves_df, fold_metrics, fold_curves
+        del table, metrics_df, curves_df, fold_metrics, fold_curves, fold_picks, last_model
         gc.collect()
 
     if not all_metrics:

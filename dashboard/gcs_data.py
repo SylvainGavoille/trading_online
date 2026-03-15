@@ -229,6 +229,47 @@ def read_ml_actions_equity(horizon: int) -> Optional[pd.DataFrame]:
     return read_ml_parquet(f"actions/backtests/h={horizon}/fold_equity.parquet")
 
 
+def read_latest_recommendations() -> Optional[pd.DataFrame]:
+    """
+    Return the most recent recommendations across all horizons.
+
+    Looks in ml_output/actions/recommendations/ for files named
+    {run_date}_h{horizon}.parquet, picks the latest run_date, and
+    concatenates all horizon files for that date.
+    """
+    bp = _ml_bucket_prefix()
+    if bp is None:
+        return None
+    bucket, prefix = bp
+    rec_prefix = f"{prefix}/actions/recommendations/".lstrip("/")
+
+    blobs = [b for b in gcs_list_blobs(bucket, rec_prefix) if b.endswith(".parquet")]
+    if not blobs:
+        return None
+
+    # Extract run dates from filenames like "2025-03-15_h5.parquet"
+    import re
+    date_pat = re.compile(r"(\d{4}-\d{2}-\d{2})_h\d+\.parquet$")
+    dates = {m.group(1) for b in blobs if (m := date_pat.search(b))}
+    if not dates:
+        return None
+
+    latest_date = max(dates)
+    frames: list[pd.DataFrame] = []
+    for blob_name in blobs:
+        if latest_date in blob_name:
+            df = gcs_read_parquet(bucket, blob_name)
+            if df is not None and not df.empty:
+                frames.append(df)
+
+    if not frames:
+        return None
+
+    result = pd.concat(frames, ignore_index=True)
+    result = result.sort_values(["horizon", "rank"]).reset_index(drop=True)
+    return result
+
+
 def gcs_bucket_stats() -> dict:
     """
     Return a quick overview of the GCS bucket contents.
