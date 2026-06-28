@@ -179,7 +179,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
         f"[features] Done in {feature_time:.1f}s - "
         + ", ".join(
             f"{c} H={h} ({len(df):,} rows)"
-            for (c, h), df in tables.items()
+            for (c, h), (df, _) in tables.items()
             if not df.empty
         )
     )
@@ -188,10 +188,10 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     completed_combos: list[str] = []
     stopped_early = False
     stop_reason = ""
-    n_combos = sum(1 for df in tables.values() if not df.empty)
+    n_combos = sum(1 for df, _ in tables.values() if not df.empty)
     combo_i = 0
 
-    for (category, horizon), df in tables.items():
+    for (category, horizon), (df, feature_cols) in tables.items():
         if _time_exceeded():
             stopped_early = True
             stop_reason = (
@@ -205,7 +205,6 @@ def cmd_backtest(args: argparse.Namespace) -> None:
             continue
 
         combo_i += 1
-        feature_cols = df.attrs["feature_cols"]
         all_dates = sorted([pd.to_datetime(d) for d in df["date"].unique()])
 
         model_dir = out_dir / "models" / f"category={category}" / f"h={horizon}"
@@ -228,6 +227,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
                     min_train_days=args.min_train_days,
                     test_days=args.test_days,
                     step_days=args.step_days,
+                    embargo=horizon,
                 )
             )
         except RuntimeError as exc:

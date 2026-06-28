@@ -20,6 +20,7 @@ from typing import List, Dict, Optional, Tuple
 import yaml
 import sys
 import os
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Load .env from project root (one level above dashboard/)
@@ -276,16 +277,21 @@ def calculate_statistics(df: pd.DataFrame) -> Dict:
 
     close_prices = df["Close"]
 
+    first_close = close_prices.iloc[0]
+    # Guard against a zero/NaN opening price (would yield inf/NaN change_pct)
+    if pd.isna(first_close) or first_close == 0:
+        change_pct = 0
+    else:
+        change_pct = (close_prices.iloc[-1] - first_close) / first_close * 100
+
     stats = {
         "min": close_prices.min(),
         "max": close_prices.max(),
         "mean": close_prices.mean(),
         "current": close_prices.iloc[-1],
-        "start": close_prices.iloc[0],
-        "change": close_prices.iloc[-1] - close_prices.iloc[0],
-        "change_pct": (
-            (close_prices.iloc[-1] - close_prices.iloc[0]) / close_prices.iloc[0] * 100
-        ),
+        "start": first_close,
+        "change": close_prices.iloc[-1] - first_close,
+        "change_pct": change_pct,
         "volatility": close_prices.std(),
         "volume_avg": df["Volume"].mean(),
         "volume_total": df["Volume"].sum(),
@@ -520,7 +526,7 @@ def fetch_rss_news(
     keywords: List[str],
     tickers: List[str],
     sources: Optional[List[str]] = None,
-) -> List[NewsItem]:
+) -> Tuple[List[NewsItem], List[str]]:
     feeds = [(s, u) for s, u in RSS_FEEDS if sources is None or s in sources]
     all_items: List[NewsItem] = []
     errors: List[str] = []
@@ -560,13 +566,24 @@ def _fetch_article_text(url: str) -> str:
     Tries curl_cffi (Chrome TLS impersonation) first to bypass Cloudflare/403,
     then falls back to plain requests.
     Returns empty string on failure (caller should fall back to RSS summary).
+
+    SSRF guard: only http(s) URLs are fetched (RSS feeds are untrusted), and
+    the downloaded body is capped to avoid pulling huge responses into memory.
     """
+    # SSRF guard: reject anything that isn't a plain http(s) URL early.
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return ""
+
+    # Cap how much of the response body we read (~1 MB).
+    max_bytes = 1_000_000
+
     html = ""
     # 1st attempt: curl_cffi with Chrome impersonation (handles Cloudflare)
     try:
         r = cffi_requests.get(url, impersonate="chrome120", timeout=15)
         r.raise_for_status()
-        html = r.text
+        html = r.text[:max_bytes]
     except Exception:
         pass
 
@@ -585,14 +602,14 @@ def _fetch_article_text(url: str) -> str:
             }
             r = requests.get(url, headers=headers, timeout=15)
             r.raise_for_status()
-            html = r.text
+            html = r.text[:max_bytes]
         except Exception:
             pass
 
     if not html:
         return ""
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
 
     # Remove noise
     for tag in soup(
@@ -652,8 +669,8 @@ def main():
     # Titre principal
     st.title("📈 Quantum Trader - Dashboard Interactif")
 
-    # Initialiser IBKR dès le démarrage (connexion partagée)
-    ib = get_ib_client()
+    # Initialiser IBKR dès le démarrage (connexion partagée).
+    # Le client est récupéré plus bas via get_ib_client() (ressource cachée).
 
     # Sidebar - Menu de navigation
     st.sidebar.title("Navigation")
@@ -685,7 +702,7 @@ def main():
 
     # --- IBKR connection status in sidebar ---
     st.sidebar.divider()
-    ib = get_ib_client()  # already cached — no new connection attempt
+    ib = get_ib_client()  # cached resource — single shared connection
     if ib is not None and ib.isConnected():
         st.sidebar.success("🟢 IBKR connecté")
         n_rec = getattr(ib, "reconnect_attempts", 0)

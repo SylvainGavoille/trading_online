@@ -73,27 +73,31 @@ class TestCLIInterface(unittest.TestCase):
         self.assertTrue(any("TWS" in prereq for prereq in prerequisites))
 
     @patch('src.cli.cli_interface.IBClient')
-    @patch('src.cli.cli_interface.TradingSwarm')
-    def test_initialize_components_success(self, mock_trading_swarm, mock_ib_client):
+    @patch('src.cli.cli_interface.TradingSystemDSPy')
+    def test_initialize_components_success(self, mock_trading_system, mock_ib_client):
         """Test successful component initialization"""
         # Configure mocks
         mock_ib_instance = mock_ib_client.return_value
         mock_ib_instance.connect_and_run.return_value = True
         mock_ib_instance.isConnected.return_value = True
-        
-        mock_swarm_instance = mock_trading_swarm.return_value
+
+        mock_system_instance = mock_trading_system.return_value
 
         # Test initialization
-        ib_client, trading_swarm = initialize_components(self.config, self.logger)
-        
+        ib_client, trading_system = initialize_components(self.config, self.logger)
+
         # Verify calls
         mock_ib_client.assert_called_once_with(self.config)
-        mock_trading_swarm.assert_called_once_with(self.config)
+        mock_trading_system.assert_called_once_with(
+            config=self.config,
+            llm_provider='ollama',
+            model='deepseek-r1:14b',
+        )
         mock_ib_instance.connect_and_run.assert_called_once()
-        
+
         # Verify returns
         self.assertEqual(ib_client, mock_ib_instance)
-        self.assertEqual(trading_swarm, mock_swarm_instance)
+        self.assertEqual(trading_system, mock_system_instance)
 
     @patch('src.cli.cli_interface.IBClient')
     def test_initialize_components_connection_failure(self, mock_ib_client):
@@ -168,15 +172,16 @@ class TestCLIInterface(unittest.TestCase):
             'timestamp': ['2024-01-01']
         }
 
-        mock_trading_swarm = MagicMock()
-        mock_trading_swarm.analyze_trading_opportunity.return_value = {
-            'status': 'executed',
-            'price': 100.0,
-            'size': 10,
-            'timestamp': '2024-01-01'
+        mock_trading_system = MagicMock()
+        mock_trading_system.analyze_technical.return_value = {
+            'symbol': 'AAPL',
+            'signal': 'BUY',
+            'confidence': 0.8,
+            'reasoning': 'test reasoning',
+            'status': 'success'
         }
 
-        mock_init_components.return_value = (mock_ib_client, mock_trading_swarm)
+        mock_init_components.return_value = (mock_ib_client, mock_trading_system)
 
         # Test trading system
         start_trading_system(self.config, ['AAPL'], self.logger)
@@ -184,7 +189,12 @@ class TestCLIInterface(unittest.TestCase):
         # Verify calls
         mock_init_components.assert_called_once()
         mock_ib_client.get_market_data.assert_called_with('AAPL')
-        mock_trading_swarm.analyze_trading_opportunity.assert_called()
+        mock_trading_system.analyze_technical.assert_called()
+        # analyze_technical is called with keyword args symbol/market_data/indicators
+        call_kwargs = mock_trading_system.analyze_technical.call_args.kwargs
+        self.assertEqual(call_kwargs['symbol'], 'AAPL')
+        self.assertIsInstance(call_kwargs['market_data'], pd.DataFrame)
+        self.assertIn('rsi', call_kwargs['indicators'])
         mock_ib_client.disconnect.assert_called_once()
 
     @patch('src.cli.cli_interface.setup_logging')
@@ -194,7 +204,12 @@ class TestCLIInterface(unittest.TestCase):
     def test_main(self, mock_args, mock_start_trading, mock_load_config, mock_setup_logging):
         """Test main function execution"""
         # Configure mocks
-        mock_args.return_value = MagicMock(symbols=['AAPL', 'MSFT'], mode='paper')
+        mock_args.return_value = MagicMock(
+            symbols=['AAPL', 'MSFT'],
+            mode='paper',
+            llm='ollama',
+            model='deepseek-r1:14b',
+        )
         mock_load_config.return_value = self.config
         mock_logger = MagicMock()
         mock_setup_logging.return_value = mock_logger
@@ -205,7 +220,9 @@ class TestCLIInterface(unittest.TestCase):
         # Verify calls
         mock_setup_logging.assert_called_once()
         mock_load_config.assert_called_once()
-        mock_start_trading.assert_called_once_with(self.config, ['AAPL', 'MSFT'], mock_logger)
+        mock_start_trading.assert_called_once_with(
+            self.config, ['AAPL', 'MSFT'], mock_logger, 'ollama', 'deepseek-r1:14b'
+        )
 
 if __name__ == '__main__':
     unittest.main()

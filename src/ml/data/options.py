@@ -6,7 +6,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from src.ml.utils import OPTIONS_SNAPSHOT_ROOT, duckdb_scan
+from src.ml.utils import OPTIONS_SNAPSHOT_ROOT, duckdb_scan, parse_date
 
 
 def read_options(
@@ -37,7 +37,11 @@ def read_options(
             "You need to populate it from IBKR EOD option chain data."
         )
 
-    glob = (options_root / "**" / "*.parquet").as_posix()
+    # Validate dates before use; bind them as parameters (never f-string them).
+    start_ts = parse_date(start)
+    end_ts = parse_date(end)
+    # Path can't be parameterized inside read_parquet(); escape single quotes.
+    glob = (options_root / "**" / "*.parquet").as_posix().replace("'", "''")
     con = duckdb.connect(":memory:")
     q = f"""
     SELECT
@@ -59,10 +63,10 @@ def read_options(
         COALESCE(multiplier, 100)::BIGINT       AS multiplier,
         COALESCE(contractId, NULL)              AS contractId
     FROM read_parquet('{glob}', hive_partitioning = true)
-    WHERE date >= '{start}'
-      AND date <= '{end}'
+    WHERE date >= ?
+      AND date <= ?
     """
-    df = duckdb_scan(con, q)
+    df = duckdb_scan(con, q, params=[start_ts.strftime("%Y-%m-%d"), end_ts.strftime("%Y-%m-%d")])
     if df.empty:
         raise RuntimeError(
             f"No options snapshots found for [{start}, {end}] in {options_root}."

@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import sys
 import types
 
@@ -21,12 +21,17 @@ class TestCollectOptionsSnapshot(unittest.TestCase):
         target_day = date(2026, 3, 9)
         day_dir = Path("C:/mock/price_historical/year=2026/month=03/day=2026-03-09")
 
+        # Mock the DuckDB connection: con.execute(sql, params).df() returns rows.
+        mock_result = MagicMock()
+        mock_result.df.return_value = mod.pd.DataFrame(
+            {"symbol": ["NVDA", "TSLA"], "volume": [10, 9]}
+        )
+        mock_con = MagicMock()
+        mock_con.execute.return_value = mock_result
+
         with patch.object(mod, "_find_day_dir", return_value=day_dir), patch.object(
-            mod, "duckdb_scan"
-        ) as mock_scan:
-            mock_scan.return_value = mod.pd.DataFrame(
-                {"symbol": ["NVDA", "TSLA"], "volume": [10, 9]}
-            )
+            mod.duckdb, "connect", return_value=mock_con
+        ):
             symbols = mod.get_top_n_symbols(
                 Path("C:/mock/price_historical"),
                 n=2,
@@ -35,10 +40,17 @@ class TestCollectOptionsSnapshot(unittest.TestCase):
             )
 
         self.assertEqual(symbols, ["NVDA", "TSLA"])
-        sql = mock_scan.call_args.args[1]
-        self.assertIn("day=2026-03-09", sql)
 
-    def test_main_falls_back_to_yahoo_when_option_farm_not_ready(self):
+        # SQL must read the requested day's parquet glob and bind min_price + n.
+        sql, params = mock_con.execute.call_args.args
+        self.assertIn("day=2026-03-09", sql)
+        self.assertIn("read_parquet", sql)
+        self.assertIn("WHERE close >= ?", sql)
+        self.assertIn("LIMIT ?", sql)
+        self.assertEqual(params, [5.0, 2])
+        mock_con.close.assert_called_once()
+
+    def test_main_collects_via_yahoo_and_saves_snapshot(self):
         saved_rows = []
 
         def _fake_save_snapshot(rows, snap_date, out_root):
@@ -64,7 +76,7 @@ class TestCollectOptionsSnapshot(unittest.TestCase):
                 "dte_max": 90,
                 "moneyness_range": 0.2,
                 "max_expirations": 3,
-                "option_chain_timeout_s": 25.0,
+                "batch_delay": 0.0,
                 "min_price": 5.0,
             },
         ), patch.object(
@@ -73,10 +85,6 @@ class TestCollectOptionsSnapshot(unittest.TestCase):
             return_value=["NVDA"],
         ) as mock_get_symbols, patch.object(
             mod,
-            "_connect_ib_with_ready_option_farm",
-            side_effect=RuntimeError("options data farm (usopt) not ready"),
-        ), patch.object(
-            mod,
             "collect_symbol",
             return_value=[{"underlying": "NVDA", "right": "C"}],
         ) as mock_collect_symbol, patch.object(
@@ -84,15 +92,20 @@ class TestCollectOptionsSnapshot(unittest.TestCase):
             "save_snapshot",
             side_effect=_fake_save_snapshot,
         ), patch.object(
-            mod.yaml,
-            "safe_load",
-            return_value={"api": {}},
+            mod.time,
+            "sleep",
+            return_value=None,
         ):
             mod.main()
 
+        # The collected Yahoo rows are persisted via save_snapshot.
         self.assertEqual(saved_rows, [{"underlying": "NVDA", "right": "C"}])
-        self.assertEqual(mock_collect_symbol.call_args.kwargs["force_yahoo"], True)
+        # The universe is resolved for the requested snapshot date.
         self.assertEqual(mock_get_symbols.call_args.kwargs["ref_date"], date(2026, 3, 9))
+        # collect_symbol is invoked per symbol with the snapshot date.
+        collect_args = mock_collect_symbol.call_args.args
+        self.assertEqual(collect_args[0], "NVDA")
+        self.assertEqual(collect_args[2], date(2026, 3, 9))
 
 
 if __name__ == "__main__":

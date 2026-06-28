@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.ml.utils import safe_log1p, winsorize
+from src.ml.utils import safe_log1p
 
 
 def build_underlying_features(px: pd.DataFrame) -> pd.DataFrame:
@@ -51,10 +51,11 @@ def build_underlying_features(px: pd.DataFrame) -> pd.DataFrame:
         "vol_log", "vol_z_20d",
         "trend_10_20",
     ]
+    # Sanitize inf only. Winsorization is deliberately NOT applied here: clipping
+    # to whole-sample quantiles would leak the future distribution into features.
+    # Outlier clipping is performed train-only inside the training routines.
     for c in FEAT_COLS:
-        px[c] = winsorize(
-            px[c].astype(float).replace([np.inf, -np.inf], np.nan)
-        )
+        px[c] = px[c].astype(float).replace([np.inf, -np.inf], np.nan)
 
     return px[["symbol", "date"] + FEAT_COLS].copy()
 

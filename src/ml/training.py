@@ -12,6 +12,7 @@ from src.ml.config import BacktestConfig, TrainConfig
 from src.ml.features.underlying import build_underlying_features, attach_underlying_close
 from src.ml.features.options import build_option_features, categorize_option_rows
 from src.ml.labels import build_labels_for_horizon
+from src.ml.utils import fit_clip_bounds, apply_clip_bounds
 
 
 # ---------------------------------------------------------------------------
@@ -25,10 +26,12 @@ def build_training_table(
     horizons: List[int],
     categories: List[str],
     cfg: BacktestConfig,
-) -> Dict[Tuple[str, int], pd.DataFrame]:
+) -> Dict[Tuple[str, int], Tuple[pd.DataFrame, List[str]]]:
     """
-    Returns {(category, horizon): DataFrame with features + 'score' label}.
-    The DataFrame carries a `.attrs['feature_cols']` list for downstream use.
+    Returns {(category, horizon): (DataFrame with features + 'score' label,
+    feature_cols)}. The feature column list is returned explicitly rather than
+    via the fragile ``DataFrame.attrs`` (which does not survive many pandas
+    operations).
     """
     und_feat = build_underlying_features(px)
     opt_feat = build_option_features(opt, und_feat, portfolio)
@@ -39,7 +42,7 @@ def build_training_table(
     opt_feat = opt_feat[opt_feat["dte"] > 0].copy()
     opt_feat["spread_pct"] = opt_feat["spread_pct"].astype(float)
 
-    tables: Dict[Tuple[str, int], pd.DataFrame] = {}
+    tables: Dict[Tuple[str, int], Tuple[pd.DataFrame, List[str]]] = {}
 
     for category in categories:
         mask = categorize_option_rows(opt_feat, category)
@@ -78,8 +81,7 @@ def build_training_table(
                 how="any",
             )
 
-            labeled.attrs["feature_cols"] = feature_cols
-            tables[(category, h)] = labeled
+            tables[(category, h)] = (labeled, feature_cols)
 
     return tables
 
@@ -95,8 +97,16 @@ def train_ranker(
 ) -> lgb.LGBMRanker:
     """
     Fit a LambdaRank model that ranks option candidates within each trading day.
+
+    Feature outlier clipping (winsorization) is fit on this train slice only and
+    applied here, so no test/future distribution leaks into the bounds.
     """
     df = df.sort_values("date").copy()
+
+    # Train-only winsorization of numeric features.
+    clip_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(df[c])]
+    bounds = fit_clip_bounds(df, clip_cols)
+    df = apply_clip_bounds(df, bounds)
 
     model = lgb.LGBMRanker(
         objective="lambdarank",
@@ -162,23 +172,37 @@ def walk_forward_splits(
     min_train_days: int = 60,
     test_days: int = 20,
     step_days: int = 20,
+    embargo: int = 0,
 ) -> Iterable[Tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp, pd.Timestamp]]:
     """
     Yields (train_start, train_end, test_start, test_end) tuples.
     Advances the window by `step_days` after each fold.
+
+    An `embargo` of trading days is left between train_end and test_start so
+    that training labels (which look `horizon` trading days into the future)
+    cannot be computed from rows that fall inside the test window. Pass at
+    least `horizon` as the embargo.
     """
     dates = sorted(dates)
-    if len(dates) < min_train_days + test_days:
+    embargo = max(0, int(embargo))
+    if len(dates) < min_train_days + embargo + test_days:
         raise RuntimeError(
             f"Not enough unique dates ({len(dates)}) for walk-forward splits. "
-            f"Need at least {min_train_days + test_days}."
+            f"Need at least {min_train_days + embargo + test_days}."
         )
-    i = min_train_days - 1
+    # `i` indexes the date just before the test window starts (test_start = i+1).
+    # Start so the embargoed train slice still holds at least min_train_days
+    # dates: train covers [0, i-embargo], requiring i-embargo >= min_train_days-1.
+    i = min_train_days - 1 + embargo
     while i + test_days < len(dates):
+        # Train ends `embargo` dates before the test window so that no training
+        # label (which looks `horizon` days forward) overlaps the test data.
+        train_end_idx = i - embargo
+        test_start_idx = i + 1
         yield (
             dates[0],
-            dates[i],
-            dates[i + 1],
-            dates[min(i + test_days, len(dates) - 1)],
+            dates[train_end_idx],
+            dates[test_start_idx],
+            dates[min(test_start_idx + test_days - 1, len(dates) - 1)],
         )
         i += step_days

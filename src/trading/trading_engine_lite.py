@@ -177,8 +177,23 @@ class TradingEngineLite:
 
         # Calculer stop-loss (ATR basé sur volatilité)
         # Pour simplifier, on utilise un pourcentage de la bande Bollinger
-        bb_range = analysis['indicators']['bb_upper'] - analysis['indicators']['bb_lower']
-        atr_estimate = bb_range / 4  # Approximation simple
+        bb_upper = analysis['indicators']['bb_upper']
+        bb_lower = analysis['indicators']['bb_lower']
+        bb_range = None
+        if bb_upper is not None and bb_lower is not None:
+            bb_range = bb_upper - bb_lower
+
+        if bb_range and bb_range > 0:
+            atr_estimate = bb_range / 4  # Approximation simple
+        else:
+            # Bollinger indisponible/invalide : repli sur l'ATR réel
+            df = pd.DataFrame(self.ib_client.get_market_data(symbol))
+            atr_estimate = TechnicalAnalysis(df).calculate_atr(symbol)
+            if not atr_estimate or atr_estimate <= 0:
+                self.logger.warning(
+                    f"{symbol}: bande Bollinger et ATR indisponibles, pas de trade"
+                )
+                return None
 
         atr_multiplier = self.config['risk_management']['stop_loss']['atr_multiplier']
 
@@ -195,11 +210,18 @@ class TradingEngineLite:
         max_position = self.config['risk_management']['position_limits']['max_position_size']
         risk_per_trade = self.config['risk_management']['stop_loss']['max_loss_per_trade']
 
+        # Récupérer le capital réel depuis le portfolio
+        portfolio = self.trade_executor.get_portfolio()
+        capital = portfolio.get('total_value')
+        if not capital or capital <= 0:
+            self.logger.warning(
+                f"{symbol}: equity du portfolio indisponible (total_value={capital}), pas de trade"
+            )
+            return None
+
         # Taille basée sur le risque
         risk_amount = abs(current_price - stop_loss)
         if risk_amount > 0:
-            # Supposons un capital de base (à adapter)
-            capital = 100000  # TODO: Récupérer du portfolio
             max_risk_dollars = capital * risk_per_trade
             quantity = int(min(max_risk_dollars / risk_amount, max_position))
         else:
@@ -248,6 +270,8 @@ class TradingEngineLite:
         execution_result = self.trade_executor.execute_trade(trade_params)
 
         if execution_result['status'] == 'executed':
+            # Enregistrer la fréquence seulement après confirmation du fill
+            self.risk_validator.record_trade(symbol)
             self.logger.info(f"{symbol}: Trade executed successfully - {execution_result}")
             return {
                 'status': 'success',

@@ -101,19 +101,34 @@ def fetch_batch(symbols: list[str], start: date, end: date) -> dict[str, pd.Data
     Retourne un dict {symbol: DataFrame} avec colonnes date/open/high/low/close/volume.
     """
     results = {}
-    try:
-        df = yf.download(
-            symbols,
-            start=start.isoformat(),
-            end=(end + timedelta(days=1)).isoformat(),
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker",
-        )
-    except Exception as exc:
-        print(f"[ERR batch] {exc}")
-        return results
+
+    # Bounded retry with exponential backoff: only retry on a thrown exception
+    # (transient network/rate-limit failure). A successful call that returns no
+    # data is genuine "no data" and is not retried.
+    max_attempts = 3
+    df = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            df = yf.download(
+                symbols,
+                start=start.isoformat(),
+                end=(end + timedelta(days=1)).isoformat(),
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+            )
+            break
+        except Exception as exc:
+            if attempt == max_attempts:
+                print(
+                    f"[ERR batch] failed after {max_attempts} attempts ({exc}); "
+                    f"symbols={symbols[:5]}{'...' if len(symbols) > 5 else ''}"
+                )
+                return results
+            backoff = 2 ** attempt  # 2s, 4s, 8s
+            print(f"[WARN batch] attempt {attempt}/{max_attempts} failed ({exc}); retrying in {backoff}s")
+            time.sleep(backoff)
 
     if df is None or df.empty:
         return results
@@ -131,7 +146,6 @@ def fetch_batch(symbols: list[str], start: date, end: date) -> dict[str, pd.Data
             else:
                 d = df.reset_index()
             d.columns = [c.lower() for c in d.columns]
-            d = d.rename(columns={"date": "date"})
             d["date"] = pd.to_datetime(d["date"]).dt.date
             d["symbol"] = sym
             d = d.dropna(subset=["close"])
@@ -149,7 +163,6 @@ def fetch_batch(symbols: list[str], start: date, end: date) -> dict[str, pd.Data
                 continue
             d = df[sym].copy().reset_index()
             d.columns = [c.lower() for c in d.columns]
-            d = d.rename(columns={"date": "date"})
             d["date"] = pd.to_datetime(d["date"]).dt.date
             d["symbol"] = sym
             d = d.dropna(subset=["close"])

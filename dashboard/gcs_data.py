@@ -8,12 +8,15 @@ locally when `gcloud auth application-default login` has been run.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from io import BytesIO
 from typing import Optional
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def get_gcs_data_uri() -> str:
@@ -47,14 +50,21 @@ def _gcs_client():
 
 
 def gcs_download_blob(bucket_name: str, blob_name: str) -> Optional[bytes]:
-    """Download a single GCS blob and return its bytes, or None on error."""
+    """Download a single GCS blob and return its bytes, or None on error.
+
+    Skips the blob.exists() pre-check and just attempts the download, treating a
+    missing blob as a quiet None. Any other error (auth, transient, network) is
+    logged so the caller can tell "no data" apart from an outage.
+    """
+    from google.api_core import exceptions as gcs_exceptions  # type: ignore
+
     try:
         client = _gcs_client()
-        blob = client.bucket(bucket_name).blob(blob_name)
-        if not blob.exists(client):
-            return None
-        return blob.download_as_bytes()
-    except Exception:
+        return client.bucket(bucket_name).blob(blob_name).download_as_bytes()
+    except gcs_exceptions.NotFound:
+        return None
+    except Exception as exc:
+        logger.warning("gcs_download_blob failed for %s/%s: %s", bucket_name, blob_name, exc)
         return None
 
 
@@ -63,7 +73,8 @@ def gcs_list_blobs(bucket_name: str, prefix: str) -> list[str]:
     try:
         client = _gcs_client()
         return [b.name for b in client.list_blobs(bucket_name, prefix=prefix)]
-    except Exception:
+    except Exception as exc:
+        logger.warning("gcs_list_blobs failed for %s/%s: %s", bucket_name, prefix, exc)
         return []
 
 
@@ -74,7 +85,8 @@ def gcs_read_parquet(bucket_name: str, blob_name: str) -> Optional[pd.DataFrame]
         return None
     try:
         return pd.read_parquet(BytesIO(data))
-    except Exception:
+    except Exception as exc:
+        logger.warning("gcs_read_parquet failed to parse %s/%s: %s", bucket_name, blob_name, exc)
         return None
 
 
@@ -93,7 +105,8 @@ def gcs_read_all_parquets(bucket_name: str, prefix: str) -> Optional[pd.DataFram
         try:
             data = client.bucket(bucket_name).blob(blob_name).download_as_bytes()
             frames.append(pd.read_parquet(BytesIO(data)))
-        except Exception:
+        except Exception as exc:
+            logger.warning("gcs_read_all_parquets skipped %s/%s: %s", bucket_name, blob_name, exc)
             continue
 
     return pd.concat(frames, ignore_index=True) if frames else None
@@ -186,7 +199,8 @@ def gcs_read_json(bucket_name: str, blob_name: str) -> Optional[dict]:
         return None
     try:
         return json.loads(data.decode("utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning("gcs_read_json failed to parse %s/%s: %s", bucket_name, blob_name, exc)
         return None
 
 
@@ -397,10 +411,17 @@ def read_price_history_from_gcs(
     frames: list[pd.DataFrame] = []
     day = start_date
     while day <= end_date:
+        # Markets are closed on weekends — no price_historical partition exists,
+        # so skip Sat/Sun to avoid a wasted GCS round-trip per day.
+        if day.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+            day += datetime.timedelta(days=1)
+            continue
         blob_name = (
             f"{base}/year={day.year}/month={day.month:02d}"
             f"/day={day.isoformat()}/{symbol}.parquet"
         )
+        # gcs_read_parquet -> gcs_download_blob attempts the download directly
+        # and treats a missing blob (holidays, etc.) as a quiet None.
         df = gcs_read_parquet(bucket, blob_name)
         if df is not None and not df.empty:
             frames.append(df)

@@ -371,9 +371,10 @@ class IBClient(EWrapper, EClient):
         self.last_error_msg = errorString
         print(f"Error {errorCode}: {errorString}")
 
-        if reqId in self.active_requests:
-            symbol = self.active_requests[reqId]
-            self.data_received[symbol] = True
+        with self._lock:
+            if reqId in self.active_requests:
+                symbol = self.active_requests[reqId]
+                self.data_received[symbol] = True
 
         # Only unblock pending waiters when the error is truly fatal for that request.
         if errorCode in self._FATAL_ERROR_CODES or reqId < 0:
@@ -387,6 +388,18 @@ class IBClient(EWrapper, EClient):
                 self._opt_chain_events[reqId].set()
             if reqId in self._mktdata_events:
                 self._mktdata_events[reqId].set()
+
+    def nextValidId(self, orderId: int) -> None:
+        """
+        Callback delivering the next valid order/request ID after connection.
+
+        Seeds self.next_req_id so request IDs never restart at 0 on a fresh
+        process or after a reconnect, which would otherwise collide with IDs
+        still in flight on the IBKR side.
+        """
+        with self._lock:
+            self.next_req_id = max(self.next_req_id, int(orderId))
+        print(f"Next valid request ID: {self.next_req_id}")
 
     def managedAccounts(self, accountsList: str) -> None:
         """
@@ -431,10 +444,6 @@ class IBClient(EWrapper, EClient):
             Dictionary containing market data, or None on failure.
         """
         try:
-            # For test cases, return test data immediately
-            if symbol == "AAPL" and self.data_received[symbol]:
-                return dict(self.market_data[symbol])
-
             # Create contract specification
             contract = Contract()
             contract.symbol = symbol
@@ -562,10 +571,13 @@ class IBClient(EWrapper, EClient):
 
     def tickPrice(self, reqId, tickType, price, attrib):
         """Handle price updates"""
-        if reqId in self.active_requests and price > 0:
-            symbol = self.active_requests[reqId]
+        with self._lock:
+            symbol = self.active_requests.get(reqId)
+        if symbol is not None and price > 0:
             # Handle both real-time and delayed price updates
             if tickType in [TICK_LAST, TICK_DELAYED_LAST, TICK_CLOSE]:
+                # _update_market_data acquires self._lock itself; call it
+                # without holding the lock to avoid re-entrant deadlock.
                 self._update_market_data(symbol, float(price))
                 print(f"Received {symbol} last/close price: {price}")
             elif tickType in [TICK_HIGH, TICK_DELAYED_HIGH]:
@@ -599,8 +611,9 @@ class IBClient(EWrapper, EClient):
 
     def tickSize(self, reqId, tickType, size):
         """Handle size updates"""
-        if reqId in self.active_requests and size > 0:
-            symbol = self.active_requests[reqId]
+        with self._lock:
+            symbol = self.active_requests.get(reqId)
+        if symbol is not None and size > 0:
             if tickType in [TICK_VOLUME, TICK_DELAYED_VOLUME]:
                 with self._lock:
                     # Update the last volume entry if it exists
@@ -621,8 +634,9 @@ class IBClient(EWrapper, EClient):
 
     def tickString(self, reqId, tickType, value):
         """Handle string tick types"""
-        if reqId in self.active_requests:
-            symbol = self.active_requests[reqId]
+        with self._lock:
+            symbol = self.active_requests.get(reqId)
+        if symbol is not None:
             # Handle real-time trade data (233)
             if tickType == 45:  # RT_VOLUME
                 try:
@@ -867,8 +881,11 @@ class IBClient(EWrapper, EClient):
 
         event.wait(timeout=timeout)
 
-        bars = self._historical_data.pop(req_id, [])
-        self._historical_data_events.pop(req_id, None)
+        # Snapshot-then-pop under the lock so we don't race the
+        # historicalData() callback appending bars on the message-loop thread.
+        with self._lock:
+            bars = self._historical_data.pop(req_id, [])
+            self._historical_data_events.pop(req_id, None)
 
         if not bars:
             return None
@@ -888,17 +905,18 @@ class IBClient(EWrapper, EClient):
 
     def historicalData(self, reqId: int, bar) -> None:
         """Callback — receives one bar at a time from reqHistoricalData."""
-        if reqId in self._historical_data:
-            self._historical_data[reqId].append(
-                {
-                    "date": bar.date,
-                    "open": bar.open,
-                    "high": bar.high,
-                    "low": bar.low,
-                    "close": bar.close,
-                    "volume": bar.volume,
-                }
-            )
+        with self._lock:
+            if reqId in self._historical_data:
+                self._historical_data[reqId].append(
+                    {
+                        "date": bar.date,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                    }
+                )
 
     def historicalDataEnd(self, reqId: int, start: str, end: str) -> None:
         """Callback fired when all bars have been delivered."""
@@ -1001,7 +1019,7 @@ class IBClient(EWrapper, EClient):
             self.reqAccountUpdates(False, account_id)
         else:
             # Fallback to reqAccountSummary with "All"
-            print(f"Requesting account summary for all accounts")
+            print("Requesting account summary for all accounts")
             req_id = self._get_next_req_id()
 
             self.reqAccountSummary(

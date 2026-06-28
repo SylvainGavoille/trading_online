@@ -67,24 +67,38 @@ def fs_path_to_gcs_uri(path: str | Path) -> str | None:
 _TOO_SMALL_RE = re.compile(r"File '([^']+)' too small to be a Parquet file")
 
 
-def duckdb_scan(con: "_duckdb.DuckDBPyConnection", sql: str, max_retries: int = 50) -> pd.DataFrame:
+def duckdb_scan(
+    con: "_duckdb.DuckDBPyConnection",
+    sql: str,
+    params: list | None = None,
+    max_retries: int = 50,
+) -> pd.DataFrame:
     """
     Execute a DuckDB SQL statement that contains a read_parquet(glob) call.
 
     If any file is reported as 'too small to be a Parquet file' (a corrupt /
-    empty file left by a failed download), it is deleted and the query is
-    retried automatically.  Repeats up to max_retries times so the entire
-    store is self-healing on first scan.
+    empty file left by a failed download), it is quarantined (renamed to a
+    sibling `*.corrupt` file) and the query is retried automatically.  Repeats
+    up to max_retries times so the entire store is self-healing on first scan.
     """
     for _ in range(max_retries):
         try:
-            return con.execute(sql).df()
+            if params is None:
+                return con.execute(sql).df()
+            return con.execute(sql, params).df()
         except Exception as exc:
             m = _TOO_SMALL_RE.search(str(exc))
             if m:
                 bad = Path(m.group(1))
-                bad.unlink(missing_ok=True)
-                print(f"[data] Removed corrupt parquet: {bad.parent.name}/{bad.name}")
+                quarantine = bad.with_suffix(bad.suffix + ".corrupt")
+                print(
+                    f"[data] WARNING: corrupt parquet, quarantining "
+                    f"{bad.parent.name}/{bad.name} -> {quarantine.name}"
+                )
+                try:
+                    bad.replace(quarantine)
+                except FileNotFoundError:
+                    pass
                 continue
             raise
     raise RuntimeError(f"Exceeded {max_retries} corrupt-file retries on query.")
@@ -134,3 +148,32 @@ def winsorize(s: pd.Series, p_low: float = 0.01, p_high: float = 0.99) -> pd.Ser
     lo = s.quantile(p_low)
     hi = s.quantile(p_high)
     return s.clip(lo, hi)
+
+
+def fit_clip_bounds(
+    df: pd.DataFrame,
+    cols: list[str],
+    p_low: float = 0.01,
+    p_high: float = 0.99,
+) -> dict[str, tuple[float, float]]:
+    """Compute per-column (low, high) winsorization bounds from `df` only.
+
+    Intended to be fit on the training slice so test/inference data never
+    influences the clipping thresholds (avoids look-ahead leakage).
+    """
+    bounds: dict[str, tuple[float, float]] = {}
+    for c in cols:
+        s = df[c].astype(float)
+        bounds[c] = (float(s.quantile(p_low)), float(s.quantile(p_high)))
+    return bounds
+
+
+def apply_clip_bounds(
+    df: pd.DataFrame, bounds: dict[str, tuple[float, float]]
+) -> pd.DataFrame:
+    """Clip columns of `df` to pre-fitted (low, high) bounds. Returns a copy."""
+    out = df.copy()
+    for c, (lo, hi) in bounds.items():
+        if c in out.columns:
+            out[c] = out[c].astype(float).clip(lo, hi)
+    return out

@@ -241,7 +241,9 @@ def _search_sqlite(query: str, max_results: Optional[int] = 40) -> List[dict]:
             like = f"%{w}%"
             v_params.extend([like, like, like, like])
 
-        limit_clause = f"LIMIT {int(max_results)}" if max_results is not None else ""
+        # Bind LIMIT as a parameter rather than interpolating into the SQL.
+        limit_clause = "LIMIT ?" if max_results is not None else ""
+        limit_param = [int(max_results)] if max_results is not None else []
 
         # --- Table ibkr_verification (vérifiés + métadonnées complètes) ---
         cur.execute(
@@ -268,7 +270,7 @@ def _search_sqlite(query: str, max_results: Optional[int] = 40) -> List[dict]:
                 v.symbol
             {limit_clause}
             """,
-            v_params + [q_upper, q_start],
+            v_params + [q_upper, q_start] + limit_param,
         )
         verified_rows = [dict(r) for r in cur.fetchall()]
         verified_syms = {r['symbol'] for r in verified_rows}
@@ -307,7 +309,7 @@ def _search_sqlite(query: str, max_results: Optional[int] = 40) -> List[dict]:
                 r.symbol
             {limit_clause}
             """,
-            r_params + [q_upper, q_start],
+            r_params + [q_upper, q_start] + limit_param,
         )
         raw_rows = [dict(r) for r in cur.fetchall() if r['symbol'] not in verified_syms]
 

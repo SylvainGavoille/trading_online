@@ -116,6 +116,7 @@ def main():
 
     # Boucle de trading
     cycle = 0
+    exit_code = 0
     try:
         while True:
             cycle += 1
@@ -201,12 +202,13 @@ def main():
         logger.info("\nTrading interrupted by user")
     except Exception as e:
         logger.error(f"Error in trading loop: {e}", exc_info=True)
+        exit_code = 1
     finally:
         logger.info("Disconnecting from IB...")
         ib_client.disconnect()
         logger.info("Shutdown complete")
 
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

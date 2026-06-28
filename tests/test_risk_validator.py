@@ -17,7 +17,8 @@ class TestRiskValidator(unittest.TestCase):
                     'max_loss_per_trade': 0.02
                 },
                 'loss_limits': {
-                    'daily_loss_limit': 1000
+                    'daily_loss_limit': 1000,
+                    'max_drawdown': 0.15
                 },
                 'trade_frequency': {
                     'max_daily_trades': 10
@@ -79,7 +80,7 @@ class TestRiskValidator(unittest.TestCase):
         
         # Test frequency tracking
         for _ in range(5):
-            self.risk_validator._record_trade(symbol)
+            self.risk_validator.record_trade(symbol)
         
         self.assertEqual(len(self.risk_validator.trade_history[symbol]), 5)
         
@@ -88,7 +89,7 @@ class TestRiskValidator(unittest.TestCase):
         self.risk_validator.trade_history[symbol] = [old_time] * 5
         
         # Add new trade
-        self.risk_validator._record_trade(symbol)
+        self.risk_validator.record_trade(symbol)
         
         # Verify old trades are cleaned up
         self.assertEqual(len(self.risk_validator.trade_history[symbol]), 1)
@@ -109,11 +110,12 @@ class TestRiskValidator(unittest.TestCase):
         result = self.risk_validator._check_risk_reward_ratio(trade)
         self.assertTrue(result['approved'])
         
-        # Test borderline case
-        trade['target_price'] = 102.00  # 1:2 risk/reward ratio
+        # Test borderline case: gross ratio is exactly 1:2, but the round-trip
+        # fees erode the NET ratio below the 2.0 minimum, so it is rejected.
+        trade['target_price'] = 102.00  # gross 1:2, net ~1.88 after fees
         result = self.risk_validator._check_risk_reward_ratio(trade)
-        self.assertTrue(result['approved'])
-        
+        self.assertFalse(result['approved'])
+
         # Test invalid case
         trade['target_price'] = 101.00  # 1:1 risk/reward ratio
         result = self.risk_validator._check_risk_reward_ratio(trade)

@@ -25,7 +25,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from src.ml.data.underlyings import read_underlyings
 from src.ml.features.underlying import build_underlying_features
 from src.ml.training import walk_forward_splits
-from src.ml.utils import ensure_dir
+from src.ml.utils import ensure_dir, fit_clip_bounds, apply_clip_bounds
 
 
 def _build_table(px: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, list[str]]:
@@ -44,6 +44,9 @@ def _build_table(px: pd.DataFrame, horizon: int) -> tuple[pd.DataFrame, list[str
 def _train_regressor(
     df: pd.DataFrame, feature_cols: list[str], lgbm_jobs: int
 ) -> lgb.LGBMRegressor:
+    # Train-only winsorization: fit clip bounds on this train slice so no
+    # future/test distribution leaks into the feature scaling.
+    df = apply_clip_bounds(df, fit_clip_bounds(df, feature_cols))
     model = lgb.LGBMRegressor(
         objective="regression",
         metric="l2",
@@ -84,7 +87,9 @@ def _backtest_topk(
         if picks.empty:
             continue
         eq_rows.append({"date": day, "n_picks": int(len(picks)), "pnl": float(picks["fwd_ret"].mean())})
-        for rank, (_, row) in enumerate(picks.iterrows(), 1):
+        for rank, row in enumerate(
+            picks[["symbol", "score", "fwd_ret"]].to_dict("records"), 1
+        ):
             pick_rows.append({
                 "date": day,
                 "symbol": row["symbol"],
@@ -254,6 +259,7 @@ def run(args: argparse.Namespace) -> None:
                     min_train_days=args.min_train_days,
                     test_days=args.test_days,
                     step_days=args.step_days,
+                    embargo=horizon,
                 )
             )
         except RuntimeError as exc:

@@ -1,367 +1,158 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
-import numpy as np
-from datetime import datetime
-from src.trading.trading_agents import TradingSwarm
 
-class TestTradingSwarm(unittest.TestCase):
+from src.trading.trading_agents import TradingSystemDSPy
+
+
+class TestTradingSystemDSPy(unittest.TestCase):
     def setUp(self):
-        """Initialize test environment"""
+        """Initialize a TradingSystemDSPy with the LLM layer mocked out."""
         self.config = {
             "risk_management": {
                 "position_limits": {
-                    "max_position_size": 100
+                    "max_position_size": 100,
+                    "max_portfolio_exposure": 0.1,
                 },
                 "loss_limits": {
-                    "daily_loss_limit": 1000
-                }
+                    "daily_loss_limit": 1000,
+                    "max_drawdown": 0.2,
+                },
+                "risk_reward": {"min_ratio": 2.0},
             }
         }
-        
-        # Sample market data for testing
-        self.market_data_df = pd.DataFrame({
-            'close': [100.0, 101.0, 102.0, 101.5, 103.0],
-            'high': [101.0, 102.0, 103.0, 102.5, 104.0],
-            'low': [99.0, 100.0, 101.0, 100.5, 102.0],
-            'volume': [1000, 1100, 1200, 1150, 1300]
-        }, index=pd.date_range(start='2024-01-01', periods=5))
-        
-        self.market_data_dict = {
-            'close': [100.0, 101.0, 102.0, 101.5, 103.0],
-            'high': [101.0, 102.0, 103.0, 102.5, 104.0],
-            'low': [99.0, 100.0, 101.0, 100.5, 102.0],
-            'volume': [1000, 1100, 1200, 1150, 1300],
-            'timestamp': ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05']
+
+        # Sample OHLCV data (>= 5 rows so _format_market_data uses it).
+        self.market_data_df = pd.DataFrame(
+            {
+                "open": [99.0, 100.0, 101.0, 100.5, 102.0],
+                "high": [101.0, 102.0, 103.0, 102.5, 104.0],
+                "low": [99.0, 100.0, 101.0, 100.5, 102.0],
+                "close": [100.0, 101.0, 102.0, 101.5, 103.0],
+                "volume": [1000, 1100, 1200, 1150, 1300],
+            },
+            index=pd.date_range(start="2024-01-01", periods=5),
+        )
+
+        self.indicators = {
+            "rsi": 55.0,
+            "macd": 0.5,
+            "price": 103.0,
+            "sma_20": 101.0,
         }
 
-        # Create a mock Swarm instance
-        self.mock_swarm = MagicMock()
-        with patch('src.trading.trading_agents.Swarm', return_value=self.mock_swarm):
-            self.trading_swarm = TradingSwarm(self.config)
+        # _configure_llm calls dspy.LM / dspy.configure; patch them so no real
+        # LLM is contacted during construction.
+        with patch("src.trading.trading_agents.dspy.LM", return_value=MagicMock()), patch(
+            "src.trading.trading_agents.dspy.configure"
+        ):
+            self.system = TradingSystemDSPy(
+                self.config, llm_provider="ollama", model="deepseek-r1:14b"
+            )
 
     def test_initialization(self):
-        """Test TradingSwarm initialization"""
-        self.assertIsNotNone(self.trading_swarm.technical_agent)
-        self.assertIsNotNone(self.trading_swarm.sentiment_agent)
-        self.assertIsNotNone(self.trading_swarm.risk_agent)
-        self.assertIsNotNone(self.trading_swarm.execution_agent)
-        self.assertEqual(self.trading_swarm.config, self.config)
+        """The system wires up the three DSPy agents and keeps the config."""
+        self.assertIsNotNone(self.system.technical_agent)
+        self.assertIsNotNone(self.system.sentiment_agent)
+        self.assertIsNotNone(self.system.risk_agent)
+        self.assertEqual(self.system.config, self.config)
 
-    def test_calculate_rsi_error_handling(self):
-        """Test RSI calculation error handling"""
-        # Test with invalid input type
-        invalid_input = "not a dataframe or dict"
-        self.assertIsNone(self.trading_swarm._calculate_rsi(invalid_input))
+    def test_analyze_technical_success(self):
+        """analyze_technical parses the DSPy prediction into a result dict."""
+        prediction = MagicMock()
+        prediction.signal = "BUY"
+        prediction.confidence = 0.82
+        prediction.reasoning = "Strong upward momentum"
+        self.system.technical_agent = MagicMock(return_value=prediction)
 
-        # Test with missing close column
-        invalid_df = pd.DataFrame({'open': [1.0, 2.0, 3.0]})
-        self.assertIsNone(self.trading_swarm._calculate_rsi(invalid_df))
+        result = self.system.analyze_technical("AAPL", self.market_data_df, self.indicators)
 
-        # Test with insufficient data points
-        short_df = pd.DataFrame({'close': [1.0, 2.0]})
-        self.assertIsNone(self.trading_swarm._calculate_rsi(short_df))
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["symbol"], "AAPL")
+        self.assertEqual(result["signal"], "BUY")
+        self.assertEqual(result["confidence"], 0.82)
+        self.assertEqual(result["reasoning"], "Strong upward momentum")
 
-        # Test with NaN values
-        nan_df = pd.DataFrame({'close': [1.0, np.nan, 3.0, 4.0, 5.0]})
-        rsi = self.trading_swarm._calculate_rsi(nan_df)
-        self.assertIsNotNone(rsi)
-        self.assertTrue(0 <= rsi <= 100)
+        # The agent receives formatted market_data + indicators strings.
+        call_kwargs = self.system.technical_agent.call_args.kwargs
+        self.assertIn("market_data", call_kwargs)
+        self.assertIn("indicators", call_kwargs)
 
-    def test_calculate_rsi(self):
-        """Test RSI calculation with different scenarios"""
-        # Test normal case with increasing prices
-        data = pd.DataFrame({
-            'close': [10.0, 10.5, 11.0, 11.5, 12.0]
-        })
-        rsi = self.trading_swarm._calculate_rsi(data)
-        self.assertIsNotNone(rsi)
-        self.assertEqual(rsi, 100.0)  # All gains should give RSI of 100
+    def test_analyze_technical_error(self):
+        """analyze_technical returns an error dict when the agent raises."""
+        self.system.technical_agent = MagicMock(side_effect=RuntimeError("LLM down"))
 
-        # Test with insufficient data
-        short_df = pd.DataFrame({
-            'close': [100.0, 101.0]
-        })
-        rsi = self.trading_swarm._calculate_rsi(short_df)
-        self.assertIsNone(rsi)
+        result = self.system.analyze_technical("AAPL", self.market_data_df, self.indicators)
 
-        # Test with constant prices
-        constant_df = pd.DataFrame({
-            'close': [100.0] * 15
-        })
-        rsi = self.trading_swarm._calculate_rsi(constant_df)
-        self.assertEqual(rsi, 50.0)  # Should be neutral
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["symbol"], "AAPL")
+        self.assertEqual(result["signal"], "NEUTRAL")
+        self.assertEqual(result["confidence"], 0.0)
+        self.assertIn("LLM down", result["error"])
 
-    def test_sentiment_methods(self):
-        """Test sentiment analysis methods"""
-        # Test news sentiment
-        news_sentiment = self.trading_swarm._fetch_news_sentiment("AAPL")
-        self.assertEqual(news_sentiment, 0.5)  # Default neutral sentiment
+    def test_analyze_sentiment_success(self):
+        """analyze_sentiment parses the DSPy prediction into a result dict."""
+        prediction = MagicMock()
+        prediction.sentiment = "BULLISH"
+        prediction.confidence = 0.7
+        prediction.key_factors = "Positive earnings"
+        self.system.sentiment_agent = MagicMock(return_value=prediction)
 
-        # Test social sentiment
-        social_sentiment = self.trading_swarm._fetch_social_sentiment("AAPL")
-        self.assertEqual(social_sentiment, 0.5)  # Default neutral sentiment
+        news = [{"title": "Beat earnings", "summary": "Q1 strong"}]
+        social = [{"platform": "X", "text": "to the moon"}]
+        result = self.system.analyze_sentiment("AAPL", news_data=news, social_data=social)
 
-        # Test sentiment aggregation
-        aggregated_sentiment = self.trading_swarm._aggregate_sentiment()
-        self.assertEqual(aggregated_sentiment, 0.5)  # Default neutral sentiment
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["symbol"], "AAPL")
+        self.assertEqual(result["sentiment"], "BULLISH")
+        self.assertEqual(result["confidence"], 0.7)
+        self.assertEqual(result["key_factors"], "Positive earnings")
 
-    def test_parse_agent_response_edge_cases(self):
-        """Test agent response parsing edge cases"""
-        # Test with None response
-        self.assertEqual(self.trading_swarm._parse_agent_response(None), {})
+    def test_analyze_sentiment_error(self):
+        """analyze_sentiment returns an error dict when the agent raises."""
+        self.system.sentiment_agent = MagicMock(side_effect=ValueError("bad parse"))
 
-        # Test with empty messages
-        empty_response = MagicMock()
-        empty_response.messages = []
-        self.assertEqual(self.trading_swarm._parse_agent_response(empty_response), {})
+        result = self.system.analyze_sentiment("AAPL")
 
-        # Test with None content
-        none_content = MagicMock()
-        none_content.messages = [{"content": None}]
-        self.assertEqual(self.trading_swarm._parse_agent_response(none_content), {})
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["sentiment"], "NEUTRAL")
+        self.assertEqual(result["confidence"], 0.0)
+        self.assertIn("bad parse", result["error"])
 
-        # Test with invalid JSON in code block
-        invalid_json_block = MagicMock()
-        invalid_json_block.messages = [{"content": "```json\ninvalid json content\n```"}]
-        result = self.trading_swarm._parse_agent_response(invalid_json_block)
-        self.assertEqual(result["status"], "processed")
+    def test_validate_risk_success(self):
+        """validate_risk parses the DSPy prediction into a result dict."""
+        prediction = MagicMock()
+        prediction.approved = True
+        prediction.risk_score = 0.3
+        prediction.reason = "Within limits"
+        self.system.risk_agent = MagicMock(return_value=prediction)
 
-        # Test with markdown without JSON
-        markdown = MagicMock()
-        markdown.messages = [{"content": "# Analysis\nSome markdown content"}]
-        result = self.trading_swarm._parse_agent_response(markdown)
-        self.assertEqual(result["status"], "processed")
-
-    def test_parse_agent_response(self):
-        """Test agent response parsing"""
-        # Test with dictionary response
-        dict_response = MagicMock()
-        dict_response.messages = [{"content": {"status": "success", "data": "test"}}]
-        result = self.trading_swarm._parse_agent_response(dict_response)
-        self.assertEqual(result, {"status": "success", "data": "test"})
-
-        # Test with JSON string response
-        json_response = MagicMock()
-        json_response.messages = [{"content": '{"status": "success", "data": "test"}'}]
-        result = self.trading_swarm._parse_agent_response(json_response)
-        self.assertEqual(result, {"status": "success", "data": "test"})
-
-        # Test with invalid JSON
-        invalid_response = MagicMock()
-        invalid_response.messages = [{"content": "invalid json"}]
-        result = self.trading_swarm._parse_agent_response(invalid_response)
-        self.assertEqual(result, {"status": "processed", "message": "invalid json"})
-
-        # Test with empty response
-        empty_response = MagicMock()
-        empty_response.messages = []
-        result = self.trading_swarm._parse_agent_response(empty_response)
-        self.assertEqual(result, {})
-
-    def test_check_risk_approval_edge_cases(self):
-        """Test risk approval checking edge cases"""
-        # Test with non-dict input
-        self.assertFalse(self.trading_swarm._check_risk_approval("not a dict"))
-        self.assertFalse(self.trading_swarm._check_risk_approval(None))
-
-        # Test with empty dict
-        self.assertFalse(self.trading_swarm._check_risk_approval({}))
-
-        # Test with nested content structure
-        nested_data = {
-            "content": {
-                "approved": True,
-                "risk_parameters": {
-                    "position_size_check": "Valid",
-                    "portfolio_exposure_check": "Valid",
-                    "stop_loss_level_check": "Valid",
-                    "risk_reward_ratio_check": "Valid",
-                    "compliance": "Approved"
-                }
-            }
-        }
-        self.assertTrue(self.trading_swarm._check_risk_approval(nested_data))
-
-        # Test with invalid risk parameters
-        invalid_params = {
-            "approved": True,
-            "risk_parameters": {
-                "position_size_check": "Invalid",
-                "portfolio_exposure_check": "Valid",
-                "stop_loss_level_check": "Valid",
-                "risk_reward_ratio_check": "Valid",
-                "compliance": "Approved"
-            }
-        }
-        self.assertFalse(self.trading_swarm._check_risk_approval(invalid_params))
-
-    def test_analyze_trading_opportunity_dataframe(self):
-        """Test analyzing trading opportunity with DataFrame input"""
-        # Mock successful responses from all agents
-        mock_technical_response = MagicMock()
-        mock_technical_response.messages = [{"content": {"signal": "buy", "confidence": 0.8}}]
-        
-        mock_sentiment_response = MagicMock()
-        mock_sentiment_response.messages = [{"content": {"signal": "neutral", "confidence": 0.5}}]
-        
-        mock_risk_response = MagicMock()
-        mock_risk_response.messages = [{"content": {
+        trade_params = {
             "symbol": "AAPL",
-            "trade": {
-                "size": 10,
-                "price": 103.0,
-                "timestamp": "2024-01-05 00:00:00"
-            },
-            "risk_parameters": {
-                "position_size_check": "Valid",
-                "portfolio_exposure_check": "Valid",
-                "stop_loss_level_check": "Valid",
-                "risk_reward_ratio_check": "Valid",
-                "compliance": "Approved"
-            },
-            "approved": True
-        }}]
-        
-        mock_execution_response = MagicMock()
-        mock_execution_response.messages = [{"content": {
-            "status": "executed",
+            "action": "BUY",
+            "quantity": 10,
             "price": 103.0,
-            "size": 10,
-            "timestamp": "2024-01-05"
-        }}]
-
-        # Set up the mock responses
-        self.mock_swarm.run.side_effect = [
-            mock_technical_response,
-            mock_sentiment_response,
-            mock_risk_response,
-            mock_execution_response
-        ]
-
-        result = self.trading_swarm.analyze_trading_opportunity("AAPL", self.market_data_df)
-        self.assertEqual(result["status"], "executed")
-        self.assertEqual(result["price"], 103.0)
-
-    def test_analyze_trading_opportunity_dict(self):
-        """Test analyzing trading opportunity with dictionary input"""
-        # Mock successful responses from all agents
-        mock_technical_response = MagicMock()
-        mock_technical_response.messages = [{"content": {"signal": "buy", "confidence": 0.8}}]
-        
-        mock_sentiment_response = MagicMock()
-        mock_sentiment_response.messages = [{"content": {"signal": "neutral", "confidence": 0.5}}]
-        
-        mock_risk_response = MagicMock()
-        mock_risk_response.messages = [{"content": {
-            "symbol": "AAPL",
-            "trade": {
-                "size": 10,
-                "price": 103.0,
-                "timestamp": "2024-01-05"
-            },
-            "risk_parameters": {
-                "position_size_check": "Valid",
-                "portfolio_exposure_check": "Valid",
-                "stop_loss_level_check": "Valid",
-                "risk_reward_ratio_check": "Valid",
-                "compliance": "Approved"
-            },
-            "approved": True
-        }}]
-        
-        mock_execution_response = MagicMock()
-        mock_execution_response.messages = [{"content": {
-            "status": "executed",
-            "price": 103.0,
-            "size": 10,
-            "timestamp": "2024-01-05"
-        }}]
-
-        # Set up the mock responses
-        self.mock_swarm.run.side_effect = [
-            mock_technical_response,
-            mock_sentiment_response,
-            mock_risk_response,
-            mock_execution_response
-        ]
-
-        result = self.trading_swarm.analyze_trading_opportunity("AAPL", self.market_data_dict)
-        self.assertEqual(result["status"], "executed")
-        self.assertEqual(result["price"], 103.0)
-
-    def test_analyze_trading_opportunity_empty_data(self):
-        """Test analyzing trading opportunity with empty market data"""
-        empty_data = {
-            "close": [],
-            "high": [],
-            "low": [],
-            "volume": [],
-            "timestamp": []
+            "stop_loss": 100.0,
         }
-        result = self.trading_swarm.analyze_trading_opportunity("AAPL", empty_data)
+        portfolio = {"total_value": 10000, "cash": 5000, "positions": []}
+        result = self.system.validate_risk(trade_params, portfolio)
+
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(result["approved"])
+        self.assertEqual(result["risk_score"], 0.3)
+        self.assertEqual(result["reason"], "Within limits")
+
+    def test_validate_risk_error(self):
+        """validate_risk returns a rejecting error dict when the agent raises."""
+        self.system.risk_agent = MagicMock(side_effect=RuntimeError("timeout"))
+
+        result = self.system.validate_risk({}, {})
+
         self.assertEqual(result["status"], "error")
-        self.assertEqual(result["reason"], "No price data available")
+        self.assertFalse(result["approved"])
+        self.assertEqual(result["risk_score"], 1.0)
+        self.assertIn("timeout", result["reason"])
 
-    def test_analyze_trading_opportunity_error_handling(self):
-        """Test error handling in analyze_trading_opportunity"""
-        # Test with invalid market data type
-        result = self.trading_swarm.analyze_trading_opportunity("AAPL", "invalid data")
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["reason"], "Invalid market data type: str")
 
-        # Test with technical analysis error
-        mock_technical_response = MagicMock()
-        mock_technical_response.messages = [{"content": {"error": "Technical analysis failed"}}]
-        
-        self.mock_swarm.run.side_effect = [mock_technical_response]
-        
-        result = self.trading_swarm.analyze_trading_opportunity("AAPL", self.market_data_dict)
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["reason"], "Technical analysis error: Technical analysis failed")
-
-    def test_analyze_trading_opportunity_risk_rejected(self):
-        """Test analyzing trading opportunity with risk rejection"""
-        mock_technical_response = MagicMock()
-        mock_technical_response.messages = [{"content": {"signal": "buy", "confidence": 0.8}}]
-        
-        mock_sentiment_response = MagicMock()
-        mock_sentiment_response.messages = [{"content": {"signal": "neutral", "confidence": 0.5}}]
-        
-        mock_risk_response = MagicMock()
-        mock_risk_response.messages = [{"content": {
-            "symbol": "AAPL",
-            "trade": {
-                "size": 10,
-                "price": 103.0,
-                "timestamp": "2024-01-05"
-            },
-            "risk_parameters": {
-                "position_size_check": "Invalid",
-                "portfolio_exposure_check": "Valid",
-                "stop_loss_level_check": "Valid",
-                "risk_reward_ratio_check": "Valid",
-                "compliance": "Rejected"
-            },
-            "approved": False,
-            "reason": "Risk limits exceeded"
-        }}]
-
-        # Set up the mock responses
-        self.mock_swarm.run.side_effect = [
-            mock_technical_response,
-            mock_sentiment_response,
-            mock_risk_response
-        ]
-
-        result = self.trading_swarm.analyze_trading_opportunity("AAPL", self.market_data_dict)
-        self.assertEqual(result["status"], "rejected")
-        self.assertEqual(result["reason"], "Risk limits exceeded")
-
-    def test_check_daily_loss_limit(self):
-        """Test daily loss limit checking"""
-        result = self.trading_swarm._check_daily_loss_limit()
-        self.assertTrue(result)  # Default implementation returns True
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

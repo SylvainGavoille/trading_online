@@ -128,9 +128,12 @@ class RiskValidator:
             if not frequency_check['approved']:
                 return self._create_rejection_response(risk_parameters, frequency_check['reason'])
             
-            # Record trade if all checks pass
-            self._record_trade(trade_params['symbol'])
-            
+            # NOTE: la fréquence de trading n'est PLUS enregistrée ici. Valider un
+            # trade ne signifie pas qu'il sera exécuté ; enregistrer la fréquence
+            # avant l'exécution gonfle artificiellement le compteur et peut bloquer
+            # des trades légitimes. L'appelant doit invoquer record_trade(symbol)
+            # uniquement après confirmation du fill (cf. trading_engine_lite).
+
             # All checks passed
             risk_parameters['compliance'] = 'Approved'
             return {
@@ -146,8 +149,12 @@ class RiskValidator:
                 f"Error during risk validation: {str(e)}"
             )
     
-    def _record_trade(self, symbol: str) -> None:
-        """Record a trade for frequency tracking"""
+    def record_trade(self, symbol: str) -> None:
+        """
+        Enregistre un trade exécuté pour le suivi de fréquence.
+
+        À appeler UNIQUEMENT après confirmation du fill, jamais à la validation.
+        """
         current_time = datetime.now(UTC)
         self.trade_history[symbol].append(current_time)
         
@@ -209,33 +216,82 @@ class RiskValidator:
             'reason': f'Portfolio exposure {exposure:.2%} exceeds maximum limit of {max_exposure:.2%}'
         }
     
-    def _check_stop_loss(self, trade_params: Dict[str, Any], 
+    def _is_short_trade(self, trade_params: Dict[str, Any]) -> bool:
+        """
+        Determine whether the trade is a short (SELL) position.
+
+        Le sens du trade est lu depuis 'action' (BUY/SELL, fourni par
+        trading_engine_lite) ou, à défaut, depuis 'order_type'. Si aucun n'est
+        fourni, on suppose un trade long (BUY) par défaut.
+        """
+        direction = (trade_params.get('action') or '').strip().upper()
+        if direction in ('BUY', 'LONG'):
+            return False
+        if direction in ('SELL', 'SHORT'):
+            return True
+
+        order_type = (trade_params.get('order_type') or '').strip().upper()
+        if order_type in ('SELL', 'SHORT'):
+            return True
+        return False
+
+    def _check_stop_loss(self, trade_params: Dict[str, Any],
                         portfolio: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate stop loss levels"""
+        """Validate stop loss levels (side-aware)"""
         current_price = trade_params['price']
         stop_loss = trade_params['stop_loss']
         position_size = trade_params['size']
-        
-        potential_loss = (current_price - stop_loss) * position_size
+        is_short = self._is_short_trade(trade_params)
+
+        # Valider le sens du stop : sous le prix pour un BUY, au-dessus pour un SELL
+        if is_short and stop_loss <= current_price:
+            return {
+                'approved': False,
+                'reason': 'Invalid stop loss level: for a SELL, stop must be above entry price'
+            }
+        if not is_short and stop_loss >= current_price:
+            return {
+                'approved': False,
+                'reason': 'Invalid stop loss level: for a BUY, stop must be below entry price'
+            }
+
+        # Perte potentielle = magnitude de l'écart au stop (valable long et short)
+        risk_per_share = abs(current_price - stop_loss)
+        potential_loss = risk_per_share * position_size
         max_loss_amount = portfolio['total_value'] * self.risk_config['stop_loss']['max_loss_per_trade']
-        
+
         if potential_loss <= max_loss_amount:
             return {'approved': True}
         return {
             'approved': False,
             'reason': f'Potential loss ${potential_loss:.2f} exceeds maximum allowed loss of ${max_loss_amount:.2f}'
         }
-    
+
     def _check_risk_reward_ratio(self, trade_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate risk/reward ratio (including fees)"""
+        """Validate risk/reward ratio (including fees, side-aware)"""
         current_price = trade_params['price']
         stop_loss = trade_params['stop_loss']
         target_price = trade_params['target_price']
         position_size = trade_params['size']
+        is_short = self._is_short_trade(trade_params)
 
-        # Calculate gross profit/loss (before fees)
-        potential_loss_gross = (current_price - stop_loss) * position_size
-        potential_reward_gross = (target_price - current_price) * position_size
+        # Valider le sens du stop avant de calculer le ratio
+        if is_short and stop_loss <= current_price:
+            return {
+                'approved': False,
+                'reason': 'Invalid stop loss level: for a SELL, stop must be above entry price'
+            }
+        if not is_short and stop_loss >= current_price:
+            return {
+                'approved': False,
+                'reason': 'Invalid stop loss level: for a BUY, stop must be below entry price'
+            }
+
+        # Risque et reward par action en magnitude (valable long et short)
+        risk_per_share = abs(current_price - stop_loss)
+        reward_per_share = abs(target_price - current_price)
+        potential_loss_gross = risk_per_share * position_size
+        potential_reward_gross = reward_per_share * position_size
 
         if potential_loss_gross <= 0:
             return {
@@ -277,8 +333,11 @@ class RiskValidator:
     
     def _check_daily_loss_limit(self, portfolio: Dict[str, Any]) -> Dict[str, Any]:
         """Check if within daily loss limits"""
-        daily_loss = portfolio.get('daily_loss', 0)
-        daily_loss_limit = self.risk_config['loss_limits']['daily_loss_limit']
+        # La convention de signe de 'daily_loss' est ambiguë selon la source
+        # (perte positive ou P&L négatif). On normalise en magnitude : seules les
+        # pertes comptent, et on les compare à la magnitude de la limite.
+        daily_loss = abs(portfolio.get('daily_loss', 0))
+        daily_loss_limit = abs(self.risk_config['loss_limits']['daily_loss_limit'])
 
         if daily_loss <= daily_loss_limit:
             return {'approved': True}

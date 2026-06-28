@@ -117,13 +117,13 @@ def consolidate(
             continue
 
         # --- REAL RUN: read all symbol files with DuckDB ---
-        files_sql = ", ".join(
-            f"'{str(f).replace(chr(92), '/')}'" for f in symbol_files
-        )
-        sql = f"SELECT * FROM read_parquet([{files_sql}])"
+        # Pass the file list as a bound parameter rather than interpolating the
+        # paths into the SQL string (avoids SQL injection via odd file names).
+        file_list = [str(f).replace(chr(92), "/") for f in symbol_files]
+        sql = "SELECT * FROM read_parquet(?)"
 
         try:
-            df: pd.DataFrame = con.execute(sql).df()
+            df: pd.DataFrame = con.execute(sql, [file_list]).df()
         except Exception as exc:
             print(f"[{i}/{total}] {day_dir.name}: ERROR reading files -- {exc}")
             skipped += 1
@@ -154,9 +154,22 @@ def consolidate(
         consolidated += 1
 
         if delete_originals:
-            for f in symbol_files:
-                f.unlink()
-                deleted_count += 1
+            # Verify the consolidated output is consistent with the inputs
+            # before destroying the originals.  Each per-symbol file holds one
+            # symbol, so the distinct symbol count must match the file count.
+            distinct_symbols = (
+                df["symbol"].nunique() if "symbol" in df.columns else 0
+            )
+            if distinct_symbols == len(symbol_files):
+                for f in symbol_files:
+                    f.unlink()
+                    deleted_count += 1
+            else:
+                print(
+                    f"[{i}/{total}] {day_dir.name}: WARNING — consolidated "
+                    f"{distinct_symbols} distinct symbols but had "
+                    f"{len(symbol_files)} input files; keeping originals."
+                )
 
     tag = "  [DRY RUN -- no files written]" if dry_run else ""
     print(

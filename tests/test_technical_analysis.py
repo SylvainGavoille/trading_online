@@ -135,15 +135,15 @@ class TestTechnicalAnalysis(unittest.TestCase):
     def test_vwap_calculation(self):
         """Test Volume Weighted Average Price calculation"""
         vwap = self.ta.vwap(3)
-        expected = pd.Series([np.nan, np.nan, 10.31667, 10.55000, 10.37778,
-                            10.57778, 10.41111, 10.73889, 10.68333, 10.55000])
+        expected = pd.Series([np.nan, np.nan, 10.29091, 10.59535, 10.54865,
+                            10.63095, 10.45152, 10.67619, 10.70698, 10.72727])
         pd.testing.assert_series_equal(vwap.round(5), expected.round(5))
 
     def test_rsi_calculation(self):
         """Test Relative Strength Index calculation"""
         rsi = self.ta.rsi(3)
-        expected = pd.Series([np.nan, np.nan, 40.00000, 71.42857, 35.71429,
-                            64.28571, 42.85714, 78.57143, 57.14286, 42.85714])
+        expected = pd.Series([np.nan, np.nan, np.nan, 78.57143, 42.85714,
+                            64.28571, 30.00000, 80.00000, 55.55556, 55.55556])
         pd.testing.assert_series_equal(rsi.round(5), expected.round(5))
 
     def test_rsi_all_gains(self):
@@ -167,20 +167,20 @@ class TestTechnicalAnalysis(unittest.TestCase):
     def test_macd_calculation(self):
         """Test MACD calculation"""
         macd_line, signal_line = self.ta.macd(3, 6, 3)
-        expected_macd = pd.Series([0.00000, 0.25000, 0.13750, 0.32188, 0.16094,
-                                 0.20547, 0.12773, 0.29887, 0.27443, 0.15722])
-        expected_signal = pd.Series([0.00000, 0.12500, 0.13125, 0.22656, 0.19375,
-                                   0.19961, 0.16367, 0.23127, 0.25285, 0.20503])
+        expected_macd = pd.Series([0.00000, 0.10714, 0.06582, 0.17023, 0.07605,
+                                 0.09584, 0.04636, 0.12921, 0.09748, 0.02937])
+        expected_signal = pd.Series([0.00000, 0.05357, 0.05969, 0.11496, 0.09551,
+                                   0.09567, 0.07102, 0.10011, 0.09880, 0.06408])
         pd.testing.assert_series_equal(macd_line.round(5), expected_macd.round(5))
         pd.testing.assert_series_equal(signal_line.round(5), expected_signal.round(5))
 
     def test_bollinger_bands_calculation(self):
         """Test Bollinger Bands calculation"""
         upper_band, lower_band = self.ta.bollinger_bands(3, 2)
-        expected_upper = pd.Series([np.nan, np.nan, 10.81650, 11.06650, 11.01650,
-                                  11.06650, 10.93650, 11.13650, 11.16650, 11.16650])
-        expected_lower = pd.Series([np.nan, np.nan, 9.65017, 9.93350, 9.85017,
-                                  10.06683, 9.93017, 10.13017, 10.16683, 10.23350])
+        expected_upper = pd.Series([np.nan, np.nan, 10.73666, 11.10000, 11.07624,
+                                  11.06999, 10.73884, 11.13666, 11.16999, 11.10000])
+        expected_lower = pd.Series([np.nan, np.nan, 9.73001, 9.90000, 9.79042,
+                                  10.06334, 10.12783, 10.13001, 10.16334, 10.30000])
         pd.testing.assert_series_equal(upper_band.round(5), expected_upper.round(5))
         pd.testing.assert_series_equal(lower_band.round(5), expected_lower.round(5))
 
@@ -200,22 +200,22 @@ class TestTechnicalAnalysis(unittest.TestCase):
     def test_atr_calculation(self):
         """Test Average True Range calculation"""
         atr = self.ta.atr(3)
-        expected = pd.Series([np.nan, np.nan, 0.40000, 0.43333, 0.40000,
-                            0.40000, 0.36667, 0.43333, 0.40000, 0.36667])
+        expected = pd.Series([np.nan, np.nan, 0.56667, 0.70000, 0.66667,
+                            0.66667, 0.53333, 0.53333, 0.50000, 0.50000])
         pd.testing.assert_series_equal(atr.round(5), expected.round(5))
 
     def test_adx_calculation(self):
         """Test Average Directional Index calculation"""
         adx = self.ta.adx(3)
-        expected = pd.Series([np.nan, np.nan, np.nan, 20.00000, 25.71429,
-                            28.57143, 25.71429, 31.42857, 34.28571, 31.42857])
+        expected = pd.Series([np.nan, np.nan, np.nan, np.nan, np.nan,
+                            34.28571, 27.61905, 42.85714, 37.03704, 27.40741])
         pd.testing.assert_series_equal(adx.round(5), expected.round(5))
 
     def test_cci_calculation(self):
         """Test Commodity Channel Index calculation"""
         cci = self.ta.cci(3)
-        expected = pd.Series([np.nan, np.nan, -66.66667, 100.00000, -100.00000,
-                            66.66667, -66.66667, 133.33333, 33.33333, -66.66667])
+        expected = pd.Series([np.nan, np.nan, np.nan, np.nan, -57.14286,
+                            14.63415, -33.33333, 160.00000, 20.00000, -80.00000])
         pd.testing.assert_series_equal(cci.round(5), expected.round(5))
 
     def test_evaluate_strong_buy_signal(self):

@@ -178,10 +178,11 @@ class FeeCalculator:
         net_commission = commission - rebate
 
         # Apply minimum $0.35 per order (for tiered)
+        # Le minimum s'applique uniquement à la commission nette ; la commission
+        # brute reste quantity * rate.
         min_commission_tiered = 0.35
         if net_commission > 0:
             net_commission = max(net_commission, min_commission_tiered)
-            commission = net_commission + rebate
 
         return {
             'commission': round(commission, 4),
