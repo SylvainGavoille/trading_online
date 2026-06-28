@@ -233,13 +233,14 @@ class TradingEngineLite:
         else:
             quantity = max_position
 
+        # Clés alignées sur RiskValidator et TradeExecutor ('size', 'target_price').
         return {
             'symbol': symbol,
             'action': action,
-            'quantity': quantity,
+            'size': quantity,
             'price': current_price,
             'stop_loss': stop_loss,
-            'take_profit': take_profit,
+            'target_price': take_profit,
             'confidence': analysis['confidence'],
             'technical_score': analysis['technical_score']
         }
@@ -271,7 +272,7 @@ class TradingEngineLite:
             }
 
         # 2. Exécution (Python pur - 0$ API, juste frais IB)
-        self.logger.info(f"{symbol}: Executing trade - {trade_params['action']} {trade_params['quantity']} @ {trade_params['price']}")
+        self.logger.info(f"{symbol}: Executing trade - {trade_params['action']} {trade_params['size']} @ {trade_params['price']}")
 
         execution_result = self.trade_executor.execute_trade(trade_params)
 
