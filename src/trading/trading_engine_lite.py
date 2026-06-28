@@ -210,12 +210,18 @@ class TradingEngineLite:
         max_position = self.config['risk_management']['position_limits']['max_position_size']
         risk_per_trade = self.config['risk_management']['stop_loss']['max_loss_per_trade']
 
-        # Récupérer le capital réel depuis le portfolio
-        portfolio = self.trade_executor.get_portfolio()
-        capital = portfolio.get('total_value')
+        # Récupérer le capital réel depuis le compte IB (NetLiquidation).
+        # get_portfolio()/updatePortfolio() ne sont jamais alimentés, donc on
+        # lit la valeur de compte via get_account_summary comme src/ml/data/portfolio.py.
+        capital = None
+        try:
+            summary = self.ib_client.get_account_summary() or {}
+            capital = summary.get('NetLiquidation')
+        except Exception as e:
+            self.logger.warning(f"{symbol}: échec récupération NetLiquidation: {e}")
         if not capital or capital <= 0:
             self.logger.warning(
-                f"{symbol}: equity du portfolio indisponible (total_value={capital}), pas de trade"
+                f"{symbol}: equity du compte indisponible (NetLiquidation={capital}), pas de trade"
             )
             return None
 

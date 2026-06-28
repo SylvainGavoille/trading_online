@@ -121,6 +121,28 @@ class TestRiskValidator(unittest.TestCase):
         result = self.risk_validator._check_risk_reward_ratio(trade)
         self.assertFalse(result['approved'])
 
+    def test_short_trade_side_aware_checks(self):
+        """Side-aware stop-loss and risk/reward for SELL (short) trades"""
+        # Valid short: stop ABOVE entry, target BELOW entry, gross 1:3 risk/reward
+        short = {
+            'symbol': 'AAPL',
+            'action': 'SELL',
+            'size': 50,
+            'price': 100.00,
+            'stop_loss': 101.00,   # above entry → risk 1.0/share
+            'target_price': 97.00  # below entry → reward 3.0/share
+        }
+        sl = self.risk_validator._check_stop_loss(short, self.portfolio)
+        self.assertTrue(sl['approved'])
+        rr = self.risk_validator._check_risk_reward_ratio(short)
+        self.assertTrue(rr['approved'])
+
+        # Invalid short: stop BELOW entry is the wrong direction for a SELL
+        bad_short = short.copy()
+        bad_short['stop_loss'] = 99.00
+        sl_bad = self.risk_validator._check_stop_loss(bad_short, self.portfolio)
+        self.assertFalse(sl_bad['approved'])
+
     def test_portfolio_risk_limits(self):
         """Test portfolio-wide risk limits"""
         # Test exposure limits

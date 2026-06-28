@@ -221,19 +221,12 @@ class RiskValidator:
         Determine whether the trade is a short (SELL) position.
 
         Le sens du trade est lu depuis 'action' (BUY/SELL, fourni par
-        trading_engine_lite) ou, à défaut, depuis 'order_type'. Si aucun n'est
-        fourni, on suppose un trade long (BUY) par défaut.
+        trading_engine_lite). Si absent, on suppose un trade long (BUY) par
+        défaut. Note : 'order_type' n'est PAS le sens du trade — c'est le type
+        d'ordre IBKR (market/limit/stop) — donc il n'est pas consulté ici.
         """
         direction = (trade_params.get('action') or '').strip().upper()
-        if direction in ('BUY', 'LONG'):
-            return False
-        if direction in ('SELL', 'SHORT'):
-            return True
-
-        order_type = (trade_params.get('order_type') or '').strip().upper()
-        if order_type in ('SELL', 'SHORT'):
-            return True
-        return False
+        return direction in ('SELL', 'SHORT')
 
     def _check_stop_loss(self, trade_params: Dict[str, Any],
                         portfolio: Dict[str, Any]) -> Dict[str, Any]:

@@ -479,6 +479,7 @@ class IBClient(EWrapper, EClient):
             timeout = 5  # 5 seconds timeout
             start_time = time.time()
             while time.time() - start_time < timeout:
+                fallback_price = None
                 with self._lock:
                     if self.data_received[symbol]:
                         # Return data if available
@@ -493,14 +494,15 @@ class IBClient(EWrapper, EClient):
                             symbol in self.market_data
                             and self.market_data[symbol]["current_high"] is not None
                         ):
-                            now = datetime.now()
-                            price = self.market_data[symbol][
-                                "current_high"
-                            ]  # Use high as current price
-                            self._update_market_data(
-                                symbol, price
-                            )  # Update market data with current price
-                            return dict(self.market_data[symbol])
+                            # Use high as current price. Capture it under the lock,
+                            # then update after releasing — _update_market_data
+                            # re-acquires self._lock (non-reentrant) and would deadlock.
+                            fallback_price = self.market_data[symbol]["current_high"]
+
+                if fallback_price is not None:
+                    self._update_market_data(symbol, fallback_price)
+                    with self._lock:
+                        return dict(self.market_data[symbol])
 
                 time.sleep(0.1)
 
