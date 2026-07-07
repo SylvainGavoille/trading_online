@@ -9,8 +9,47 @@ import json
 import os
 
 from gcs_data import read_price_history_from_gcs
+from risk_profile_manager import RiskProfileManager
 
 _ib_client = None
+
+
+def _latest_close_from_gcs(symbol: str, day: str) -> Optional[float]:
+    """Return the most recent GCS close for *symbol* up to *day* (YYYY-MM-DD).
+
+    Looks back ~7 calendar days from *day*. Returns None if no data is found.
+    The *day* argument exists so the Streamlit cache key rolls over daily.
+    """
+    from datetime import date, timedelta
+
+    end_d = date.fromisoformat(day)
+    start_d = end_d - timedelta(days=7)
+    gcs_df = read_price_history_from_gcs(symbol, start_d, end_d)
+    if gcs_df is not None and not gcs_df.empty and "Close" in gcs_df.columns:
+        return float(gcs_df["Close"].iloc[-1])
+    return None
+
+
+# Wrap the per-symbol GCS lookup in Streamlit's data cache so repeated reruns
+# don't re-hit GCS for the same (symbol, day). When not running under Streamlit
+# (e.g. the __main__ test), fall back to the uncached function.
+try:
+    import streamlit as st
+
+    _cached_latest_close = st.cache_data(ttl=900)(_latest_close_from_gcs)
+except Exception:  # pragma: no cover - non-Streamlit context
+    _cached_latest_close = _latest_close_from_gcs
+
+
+def _configured_ibkr_plan() -> str:
+    """Return the IBKR plan configured by the user (user_config.json).
+
+    Falls back to "Lite" if the config can't be read.
+    """
+    try:
+        return RiskProfileManager().config.get("ibkr_plan", "Lite")
+    except Exception:
+        return "Lite"
 
 
 def configure_ibkr_client(client) -> None:
@@ -87,6 +126,10 @@ class PortfolioManager:
             if not ibkr_positions:
                 return []  # Compte valide mais sans positions ouvertes
 
+            # Le plan IBKR n'est pas exposé par l'API des positions : on utilise
+            # le plan configuré par l'utilisateur pour calculer des frais réalistes.
+            plan = _configured_ibkr_plan()
+
             positions = []
             for symbol, pos_info in ibkr_positions.items():
                 if pos_info["position"] <= 0:
@@ -97,7 +140,7 @@ class PortfolioManager:
                         "shares": int(pos_info["position"]),
                         "avg_price": float(pos_info["avg_cost"]),
                         "date_bought": datetime.now().strftime("%Y-%m-%d"),
-                        "ibkr_plan": "Lite",
+                        "ibkr_plan": plan,
                         "from_ibkr": True,
                     }
                 )
@@ -169,8 +212,10 @@ class PortfolioManager:
 
         # Lite : 0$ commission mais routing fees
         if plan == "Lite":
-            # Routing fees approximatifs (peuvent varier)
-            routing_fee = 0.0  # Simplifié pour l'exemple
+            # TODO: estimer les routing fees IBKR Lite (variables selon l'order
+            # flow / la venue). Retourne 0.0 pour l'instant, ce qui sous-estime
+            # légèrement les frais réels des positions sur le plan Lite.
+            routing_fee = 0.0
             return routing_fee
 
         # Pro Fixed
@@ -199,17 +244,16 @@ class PortfolioManager:
         from datetime import date, timedelta
 
         prices = {}
-        end_d = date.today() - timedelta(days=1)
-        start_d = end_d - timedelta(days=7)
+        day = (date.today() - timedelta(days=1)).isoformat()
 
         for position in self.positions:
             symbol = position["symbol"]
             fallback = position["avg_price"]
 
             try:
-                gcs_df = read_price_history_from_gcs(symbol, start_d, end_d)
-                if gcs_df is not None and not gcs_df.empty and "Close" in gcs_df.columns:
-                    prices[symbol] = float(gcs_df["Close"].iloc[-1])
+                close = _cached_latest_close(symbol, day)
+                if close is not None:
+                    prices[symbol] = close
                     continue
             except Exception as e:
                 print(f"GCS prix manquant pour {symbol}: {e}")
@@ -261,8 +305,10 @@ class PortfolioManager:
             # % gain IBKR (affiché sans frais)
             ibkr_gain_pct = ((current_price - avg_price) / avg_price) * 100
 
-            # % gain réel (après frais)
-            real_gain_pct = (net_pnl / cost_basis) * 100
+            # % gain réel (après frais) : rapporté à la mise réelle, c.-à-d. le
+            # coût d'achat + les frais d'achat (capital effectivement engagé).
+            capital_outlay = cost_basis + buy_fees
+            real_gain_pct = (net_pnl / capital_outlay) * 100 if capital_outlay > 0 else 0.0
 
             data.append(
                 {

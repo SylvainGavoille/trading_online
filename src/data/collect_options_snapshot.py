@@ -41,8 +41,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.ml.utils import duckdb_scan
-
 PRICE_HISTORICAL_ROOT = _PROJECT_ROOT / "price_historical"
 OPTIONS_SNAPSHOT_ROOT = _PROJECT_ROOT / "options_snapshot"
 CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.yaml"
@@ -118,15 +116,19 @@ def get_top_n_symbols(
     print(f"[universe] Using day {day_label}  ({day_dir})")
 
     con = duckdb.connect()
+    # read_parquet's path argument cannot be a bound parameter in DuckDB, so
+    # escape any single quotes in the glob (double them) to prevent SQL
+    # injection. min_price and the LIMIT are bound as parameters.
+    safe_glob = day_glob.replace("'", "''")
     sql = f"""
         SELECT symbol, volume
-        FROM read_parquet('{day_glob}')
-        WHERE close >= {min_price}
+        FROM read_parquet('{safe_glob}')
+        WHERE close >= ?
         ORDER BY volume DESC NULLS LAST
-        LIMIT {n}
+        LIMIT ?
     """
     try:
-        df = duckdb_scan(con, sql)
+        df = con.execute(sql, [float(min_price), int(n)]).df()
         if df.empty:
             print(
                 f"[universe] No symbols with close >= ${min_price:.2f} found. "

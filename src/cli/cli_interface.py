@@ -164,7 +164,7 @@ def start_trading_system(config, symbols, logger, llm_provider='ollama', model='
                     # Log market data summary
                     logger.info(f"Market data received for {symbol}:")
                     logger.info(f"- Latest Price: {df['close'].iloc[-1]:.2f}")
-                    if not df['volume'].iloc[-1] != 0:
+                    if df['volume'].iloc[-1] != 0:
                         logger.info(f"- Volume: {df['volume'].iloc[-1]}")
                     if not pd.isna(df['high'].iloc[-1]):
                         logger.info(f"- High: {df['high'].iloc[-1]:.2f}")

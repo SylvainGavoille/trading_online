@@ -45,9 +45,9 @@ from gcs_data import (
 # ---------------------------------------------------------------------------
 
 
-def _uv_python() -> list[str]:
+def _python_cmd() -> list[str]:
     """
-    Return the command prefix to run Python in the uv virtual environment.
+    Return the command prefix to run a Python script in the current interpreter.
     -u forces unbuffered stdout/stderr so lines appear immediately when piped.
     """
     return [sys.executable, "-u"]
@@ -211,7 +211,7 @@ def _render_options_snapshot() -> None:
             "🧹 Clean price_historical/", use_container_width=True, key="btn_clean"
         ):
             clean_placeholder = st.empty()
-            cmd = _uv_python() + [
+            cmd = _python_cmd() + [
                 str(_PROJECT_ROOT / "src" / "data" / "cleanup_price_historical.py"),
                 "--verbose",
             ]
@@ -231,7 +231,7 @@ def _render_options_snapshot() -> None:
         key="btn_preview",
     ):
         preview_placeholder = st.empty()
-        cmd = _uv_python() + [
+        cmd = _python_cmd() + [
             str(_PROJECT_ROOT / "src" / "data" / "collect_options_snapshot.py"),
             "--dry_run",
             "--top_n",
@@ -252,7 +252,7 @@ def _render_options_snapshot() -> None:
         key="btn_opt_collect",
     ):
         output_placeholder = st.empty()
-        cmd = _uv_python() + [
+        cmd = _python_cmd() + [
             str(_PROJECT_ROOT / "src" / "data" / "collect_options_snapshot.py"),
             "--top_n",
             str(top_n),
@@ -357,7 +357,7 @@ def _render_ml_pipeline() -> None:
         key="btn_pipeline",
     ):
         output_placeholder = st.empty()
-        cmd = _uv_python() + [
+        cmd = _python_cmd() + [
             str(_PROJECT_ROOT / "src" / "ml" / "pipeline.py"),
             "--start",
             start_date.isoformat(),

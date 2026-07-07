@@ -41,6 +41,9 @@ class QualitativeAnalysis:
         """
         try:
             url = "https://api.twitter.com/2/tweets/search/recent"
+            # NOTE: l'API Twitter v2 attend un *Bearer token* OAuth2 dédié, pas la
+            # consumer API key. Utiliser self.twitter_api_key comme bearer échouera
+            # (401) tant qu'un vrai bearer token n'est pas configuré ici.
             headers = {
                 'Authorization': f'Bearer {self.twitter_api_key}'
             }
@@ -49,6 +52,14 @@ class QualitativeAnalysis:
                 'max_results': 100
             }
             response = requests.get(url, headers=headers, params=params)
+            if response.status_code in (401, 403):
+                # Ne pas masquer silencieusement un échec d'authentification :
+                # le bearer token est invalide ou manquant.
+                self.logger.warning(
+                    f"Twitter auth failed ({response.status_code}) for {symbol}: "
+                    f"a valid OAuth2 bearer token is required. Response: {response.text}"
+                )
+                return {'data': []}
             response.raise_for_status()
             return response.json()
         except Exception as e:

@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Optional
 
 
+# Multiplier applied to short-premium credit / trade cost to approximate the
+# margin (capital) at risk. Shared by labels.py and optimizer.py.
+MARGIN_PROXY_MULT: float = 5.0
+
+
 @dataclass(frozen=True)
 class BacktestConfig:
     slippage_bps: float = 10.0

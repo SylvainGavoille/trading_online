@@ -16,6 +16,7 @@ from src.ml.utils import (
     gcs_data_uri,
     gcs_mount_path,
     fs_path_to_gcs_uri,
+    parse_date,
 )
 
 
@@ -165,8 +166,12 @@ def read_underlyings(
                 f"No underlying day partitions found for [{start}, {end}] in {price_root}.\n"
                 "Make sure price_historical/ is populated for the requested window."
             )
+        # Validate dates before use; bind them as parameters (never f-string).
+        start_ts = parse_date(start)
+        end_ts = parse_date(end)
         con = duckdb.connect(":memory:")
-        globs_sql = ", ".join(f"'{g}'" for g in parquet_globs)
+        # Paths can't be parameterized inside read_parquet(); escape single quotes.
+        globs_sql = ", ".join("'" + g.replace("'", "''") + "'" for g in parquet_globs)
         q = f"""
         SELECT
             symbol,
@@ -177,10 +182,10 @@ def read_underlyings(
             close::DOUBLE  AS close,
             volume::BIGINT AS volume
         FROM read_parquet([{globs_sql}], hive_partitioning = true)
-        WHERE day >= '{start}'
-          AND day <= '{end}'
+        WHERE day >= ?
+          AND day <= ?
         """
-        df = duckdb_scan(con, q)
+        df = duckdb_scan(con, q, params=[start_ts.strftime("%Y-%m-%d"), end_ts.strftime("%Y-%m-%d")])
 
     if df.empty:
         raise RuntimeError(

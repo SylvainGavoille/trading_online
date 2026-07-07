@@ -128,6 +128,7 @@ class SignalAnalyzer:
             
         except Exception as e:
             self.logger.exception(f"Error analyzing sentiment: {str(e)}")
+            self.logger.warning("Returning neutral sentiment default (0.5) due to error")
             return {
                 "news": 0.5,
                 "social": 0.5,

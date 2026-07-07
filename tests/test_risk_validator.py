@@ -17,7 +17,8 @@ class TestRiskValidator(unittest.TestCase):
                     'max_loss_per_trade': 0.02
                 },
                 'loss_limits': {
-                    'daily_loss_limit': 1000
+                    'daily_loss_limit': 1000,
+                    'max_drawdown': 0.15
                 },
                 'trade_frequency': {
                     'max_daily_trades': 10
@@ -79,7 +80,7 @@ class TestRiskValidator(unittest.TestCase):
         
         # Test frequency tracking
         for _ in range(5):
-            self.risk_validator._record_trade(symbol)
+            self.risk_validator.record_trade(symbol)
         
         self.assertEqual(len(self.risk_validator.trade_history[symbol]), 5)
         
@@ -88,7 +89,7 @@ class TestRiskValidator(unittest.TestCase):
         self.risk_validator.trade_history[symbol] = [old_time] * 5
         
         # Add new trade
-        self.risk_validator._record_trade(symbol)
+        self.risk_validator.record_trade(symbol)
         
         # Verify old trades are cleaned up
         self.assertEqual(len(self.risk_validator.trade_history[symbol]), 1)
@@ -109,15 +110,38 @@ class TestRiskValidator(unittest.TestCase):
         result = self.risk_validator._check_risk_reward_ratio(trade)
         self.assertTrue(result['approved'])
         
-        # Test borderline case
-        trade['target_price'] = 102.00  # 1:2 risk/reward ratio
+        # Test borderline case: gross ratio is exactly 1:2, but the round-trip
+        # fees erode the NET ratio below the 2.0 minimum, so it is rejected.
+        trade['target_price'] = 102.00  # gross 1:2, net ~1.88 after fees
         result = self.risk_validator._check_risk_reward_ratio(trade)
-        self.assertTrue(result['approved'])
-        
+        self.assertFalse(result['approved'])
+
         # Test invalid case
         trade['target_price'] = 101.00  # 1:1 risk/reward ratio
         result = self.risk_validator._check_risk_reward_ratio(trade)
         self.assertFalse(result['approved'])
+
+    def test_short_trade_side_aware_checks(self):
+        """Side-aware stop-loss and risk/reward for SELL (short) trades"""
+        # Valid short: stop ABOVE entry, target BELOW entry, gross 1:3 risk/reward
+        short = {
+            'symbol': 'AAPL',
+            'action': 'SELL',
+            'size': 50,
+            'price': 100.00,
+            'stop_loss': 101.00,   # above entry → risk 1.0/share
+            'target_price': 97.00  # below entry → reward 3.0/share
+        }
+        sl = self.risk_validator._check_stop_loss(short, self.portfolio)
+        self.assertTrue(sl['approved'])
+        rr = self.risk_validator._check_risk_reward_ratio(short)
+        self.assertTrue(rr['approved'])
+
+        # Invalid short: stop BELOW entry is the wrong direction for a SELL
+        bad_short = short.copy()
+        bad_short['stop_loss'] = 99.00
+        sl_bad = self.risk_validator._check_stop_loss(bad_short, self.portfolio)
+        self.assertFalse(sl_bad['approved'])
 
     def test_portfolio_risk_limits(self):
         """Test portfolio-wide risk limits"""

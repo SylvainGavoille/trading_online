@@ -79,26 +79,12 @@ class TechnicalAnalysis:
 
     def ema(self, period=20):
         """Exponential Moving Average"""
-        if period == 3:  # Test case
-            result = pd.Series([10.0, 10.25, 10.225, 10.5125, 10.40625,
-                              10.50313, 10.45156, 10.67578, 10.68789, 10.59395])
-            result.index = range(10)  # Use simple integer index
-            result.name = None
-            return result
-            
         result = self.data['close'].ewm(span=period, adjust=False).mean()
         result.name = None
         return result
 
     def vwap(self, period=14):
         """Volume Weighted Average Price"""
-        if period == 3:  # Test case
-            result = pd.Series([np.nan, np.nan, 10.31667, 10.55, 10.37778,
-                              10.57778, 10.41111, 10.73889, 10.68333, 10.55])
-            result.index = range(10)  # Use simple integer index
-            result.name = None
-            return result
-            
         typical_price = (self.data['high'] + self.data['low'] + self.data['close']) / 3
         tp_volume = typical_price * self.data['volume']
         cumulative_tp = tp_volume.rolling(window=period).sum()
@@ -141,14 +127,6 @@ class TechnicalAnalysis:
             result.name = None
             return result
 
-        # For test cases with period=3
-        if period == 3 and len(self.data) == 10:
-            result = pd.Series([np.nan, np.nan, 40.00000, 71.42857, 35.71429,
-                              64.28571, 42.85714, 78.57143, 57.14286, 42.85714])
-            result.index = range(10)  # Use simple integer index
-            result.name = None
-            return result
-
         # Calculate gains and losses
         gain = delta.where(delta > 0, 0.0)
         loss = -delta.where(delta < 0, 0.0)
@@ -173,17 +151,6 @@ class TechnicalAnalysis:
 
     def macd(self, fast_period=12, slow_period=26, signal_period=9):
         """Moving Average Convergence Divergence"""
-        if fast_period == 3:  # Test case
-            macd_line = pd.Series([0.0, 0.25, 0.1375, 0.32188, 0.16094,
-                                 0.20547, 0.12773, 0.29887, 0.27443, 0.15722])
-            signal_line = pd.Series([0.0, 0.125, 0.13125, 0.22656, 0.19375,
-                                   0.19961, 0.16367, 0.23127, 0.25285, 0.20503])
-            macd_line.index = range(10)  # Use simple integer index
-            signal_line.index = range(10)  # Use simple integer index
-            macd_line.name = None
-            signal_line.name = None
-            return macd_line, signal_line
-            
         fast_ema = self.data['close'].ewm(span=fast_period, adjust=False).mean()
         slow_ema = self.data['close'].ewm(span=slow_period, adjust=False).mean()
         macd_line = fast_ema - slow_ema
@@ -202,17 +169,6 @@ class TechnicalAnalysis:
             constant_series.name = None
             return constant_series, constant_series
 
-        if period == 3:  # Test case
-            upper = pd.Series([np.nan, np.nan, 10.81650, 11.06650, 11.01650,
-                             11.06650, 10.93650, 11.13650, 11.16650, 11.16650])
-            lower = pd.Series([np.nan, np.nan, 9.65017, 9.93350, 9.85017,
-                             10.06683, 9.93017, 10.13017, 10.16683, 10.23350])
-            upper.index = range(10)  # Use simple integer index
-            lower.index = range(10)  # Use simple integer index
-            upper.name = None
-            lower.name = None
-            return upper, lower
-            
         # Calculate SMA and standard deviation
         sma = self.data['close'].rolling(window=period).mean()
         std = self.data['close'].rolling(window=period).std()
@@ -230,13 +186,6 @@ class TechnicalAnalysis:
 
     def atr(self, period=14):
         """Average True Range"""
-        if period == 3:  # Test case
-            result = pd.Series([np.nan, np.nan, 0.40000, 0.43333, 0.40000,
-                              0.40000, 0.36667, 0.43333, 0.40000, 0.36667])
-            result.index = range(10)  # Use simple integer index
-            result.name = None
-            return result
-            
         high = self.data['high']
         low = self.data['low']
         close = self.data['close'].shift()
@@ -348,17 +297,10 @@ class TechnicalAnalysis:
             
         except Exception as e:
             print(f"Error calculating price target: {e}")
-            return current_price * 1.20  # Default to 20% above current price
+            return None  # Cannot determine target; callers handle None
 
     def adx(self, period=14):
         """Average Directional Index"""
-        if period == 3:  # Test case
-            result = pd.Series([np.nan, np.nan, np.nan, 20.00000, 25.71429,
-                              28.57143, 25.71429, 31.42857, 34.28571, 31.42857])
-            result.index = range(10)  # Use simple integer index
-            result.name = None
-            return result
-            
         high = self.data['high']
         low = self.data['low']
         close = self.data['close']
@@ -387,13 +329,6 @@ class TechnicalAnalysis:
 
     def cci(self, period=20):
         """Commodity Channel Index"""
-        if period == 3:  # Test case
-            result = pd.Series([np.nan, np.nan, -66.66667, 100.00000, -100.00000,
-                              66.66667, -66.66667, 133.33333, 33.33333, -66.66667])
-            result.index = range(10)  # Use simple integer index
-            result.name = None
-            return result
-            
         tp = (self.data['high'] + self.data['low'] + self.data['close']) / 3
         sma = tp.rolling(window=period).mean()
         mad = abs(tp - sma).rolling(window=period).mean()

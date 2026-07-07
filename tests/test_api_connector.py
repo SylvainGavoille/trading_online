@@ -23,22 +23,29 @@ class TestIBClient(unittest.TestCase):
         """Test client initialization"""
         self.assertEqual(self.ib_client.host, '127.0.0.1')
         self.assertEqual(self.ib_client.port, 7497)
-        self.assertEqual(self.ib_client.client_id, 1)
+        self.assertEqual(self.ib_client.client_id, 10)
         self.assertIsInstance(self.ib_client.market_data, defaultdict)
         self.assertIsInstance(self.ib_client.active_requests, dict)
         self.assertIsInstance(self.ib_client._lock, type(threading.Lock()))
         self.assertEqual(self.ib_client.next_req_id, 0)
 
+    @patch('src.api.ib_connector.socket.create_connection')
     @patch.object(IBClient, 'connect')
     @patch.object(threading.Thread, 'start')
-    def test_connect_and_run_success(self, mock_thread_start, mock_connect):
+    def test_connect_and_run_success(self, mock_thread_start, mock_connect, mock_create_connection):
         """Test successful connection"""
+        # The TCP preflight must succeed so connect_and_run reaches self.connect().
+        # create_connection is used as a context manager, so the return value
+        # needs __enter__/__exit__ which MagicMock provides by default.
+        mock_create_connection.return_value = MagicMock()
         # Mock isConnected to return True
         with patch.object(IBClient, 'isConnected', return_value=True):
             result = self.ib_client.connect_and_run()
-            
-            mock_connect.assert_called_once_with('127.0.0.1', 7497, 1)
-            mock_thread_start.assert_called_once()
+
+            mock_connect.assert_called_once_with('127.0.0.1', 7497, 10)
+            # The message-loop thread is started; the watchdog thread is also
+            # started after a successful connect — both via Thread.start.
+            self.assertTrue(mock_thread_start.called)
             self.assertTrue(result)
 
     @patch.object(IBClient, 'connect')
@@ -55,38 +62,51 @@ class TestIBClient(unittest.TestCase):
             mock_print.assert_called_with("Connection message: Market data farm connection is OK")
 
     def test_error_handling_no_security_definition(self):
-        """Test handling of no security definition error"""
+        """Test handling of no security definition error (fatal, code 200)"""
         self.ib_client.active_requests[1] = 'AAPL'
-        with patch('builtins.print') as mock_print:
-            self.ib_client.error(1, 200, "No security definition found")
-            mock_print.assert_called_with("No security definition found for reqId 1")
-            self.assertTrue(self.ib_client.data_received['AAPL'])
+        self.ib_client.error(1, 200, "No security definition found")
+        # The error unblocks any waiter for this symbol by marking data received.
+        self.assertTrue(self.ib_client.data_received['AAPL'])
+        # The error code/message are recorded for diagnostics.
+        self.assertEqual(self.ib_client.last_error_code, 200)
+        self.assertEqual(self.ib_client.last_error_msg, "No security definition found")
 
     def test_error_handling_market_data_not_subscribed(self):
-        """Test handling of market data not subscribed error"""
+        """Test handling of market data not subscribed error (fatal, code 354)"""
         self.ib_client.active_requests[1] = 'AAPL'
-        with patch('builtins.print') as mock_print:
-            self.ib_client.error(1, 354, "Market data not subscribed")
-            mock_print.assert_called_with("Market data not subscribed for reqId 1")
-            self.assertTrue(self.ib_client.data_received['AAPL'])
+        self.ib_client.error(1, 354, "Market data not subscribed")
+        # The error unblocks any waiter for this symbol by marking data received.
+        self.assertTrue(self.ib_client.data_received['AAPL'])
+        self.assertEqual(self.ib_client.last_error_code, 354)
+        self.assertEqual(self.ib_client.last_error_msg, "Market data not subscribed")
 
+    @patch.object(IBClient, 'reqMarketDataType')
     @patch.object(IBClient, 'reqMktData')
     @patch.object(IBClient, 'isConnected', return_value=True)
-    def test_get_market_data_request(self, mock_is_connected, mock_req_mkt_data):
-        """Test market data request"""
-        # Setup mock data
-        self.ib_client.data_received[self.test_symbol] = True
-        self.ib_client._update_market_data(self.test_symbol, 150.0, 1000)
-        
+    def test_get_market_data_request(self, mock_is_connected, mock_req_mkt_data, mock_req_type):
+        """Test market data request returns accumulated data once it arrives.
+
+        get_market_data resets data_received to False and polls until the
+        IBKR snapshot callbacks deliver data. We simulate IBKR by having the
+        mocked reqMktData populate market_data via _update_market_data, which
+        also flips data_received to True so the poll loop exits immediately
+        and returns the accumulated dict.
+        """
+        def fake_req_mkt_data(req_id, contract, *args, **kwargs):
+            # Simulate the snapshot callback delivering one trade tick.
+            self.ib_client._update_market_data(self.test_symbol, 150.0, 1000)
+
+        mock_req_mkt_data.side_effect = fake_req_mkt_data
+
         result = self.ib_client.get_market_data(self.test_symbol)
-        
+
         self.assertIsNotNone(result)
         self.assertIn('close', result)
         self.assertIn('high', result)
         self.assertIn('low', result)
         self.assertIn('volume', result)
-        self.assertEqual(result['close'][0], 150.0)
-        self.assertEqual(result['volume'][0], 1000)
+        self.assertEqual(result['close'][-1], 150.0)
+        self.assertEqual(result['volume'][-1], 1000)
 
     @patch.object(IBClient, 'reqMktData')
     @patch.object(IBClient, 'isConnected', return_value=False)

@@ -349,15 +349,20 @@ Technical Indicators:
 
     def _format_trade_params(self, params: Dict[str, Any]) -> str:
         """Formate les paramètres du trade"""
+        # Clé standard 'size'/'target_price' (RiskValidator, TradeExecutor),
+        # avec repli sur 'quantity'/'take_profit' pour la compatibilité.
+        quantity = params.get('size', params.get('quantity', 'N/A'))
+        target = params.get('target_price', params.get('take_profit', 'N/A'))
+        risk_qty = params.get('size', params.get('quantity', 0)) or 0
         return f"""
 Trade Parameters:
 - Symbol: {params.get('symbol', 'N/A')}
 - Action: {params.get('action', 'N/A')}
-- Quantity: {params.get('quantity', 'N/A')} shares
+- Quantity: {quantity} shares
 - Price: ${params.get('price', 'N/A')}
 - Stop Loss: ${params.get('stop_loss', 'N/A')}
-- Take Profit: ${params.get('take_profit', 'N/A')}
-- Risk: ${params.get('quantity', 0) * abs(params.get('price', 0) - params.get('stop_loss', 0))}
+- Take Profit: ${target}
+- Risk: ${risk_qty * abs(params.get('price', 0) - params.get('stop_loss', 0))}
         """
 
     def _format_portfolio(self, portfolio: Dict[str, Any]) -> str:

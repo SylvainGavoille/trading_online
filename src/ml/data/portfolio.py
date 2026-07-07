@@ -28,7 +28,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from src.ml.utils import PORTFOLIO_DAILY_ROOT
+from src.ml.utils import PORTFOLIO_DAILY_ROOT, parse_date
 
 
 # ---------------------------------------------------------------------------
@@ -114,9 +114,14 @@ def read_portfolio(
     if ib_client is not None:
         _maybe_refresh_today(ib_client, portfolio_root)
 
+    # Validate dates before use; bind them as parameters (never f-string them).
+    start_ts = parse_date(start)
+    end_ts = parse_date(end)
+
     # --- Parquet path ---
     if portfolio_root.exists() and list(portfolio_root.glob("**/*.parquet")):
-        glob = (portfolio_root / "**" / "*.parquet").as_posix()
+        # Path can't be parameterized inside read_parquet(); escape single quotes.
+        glob = (portfolio_root / "**" / "*.parquet").as_posix().replace("'", "''")
         con = duckdb.connect(":memory:")
         q = f"""
         SELECT
@@ -126,10 +131,10 @@ def read_portfolio(
             net_liq::DOUBLE      AS net_liq,
             margin_used::DOUBLE  AS margin_used
         FROM read_parquet('{glob}', hive_partitioning = true)
-        WHERE date >= '{start}'
-          AND date <= '{end}'
+        WHERE date >= ?
+          AND date <= ?
         """
-        df = con.execute(q).df()
+        df = con.execute(q, [start_ts.strftime("%Y-%m-%d"), end_ts.strftime("%Y-%m-%d")]).df()
 
     # --- CSV fallback ---
     elif portfolio_root.exists() and list(portfolio_root.glob("**/*.csv")):

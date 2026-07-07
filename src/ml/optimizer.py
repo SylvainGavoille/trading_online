@@ -7,11 +7,18 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from src.ml.config import MARGIN_PROXY_MULT
+
 try:
     import pulp  # type: ignore
     _HAS_PULP = True
 except Exception:
     _HAS_PULP = False
+
+
+# Pre-trim candidate chains to the top-N by predicted score before solving, to
+# bound both the ILP problem size and the greedy scan on large option chains.
+MAX_CAND = 2000
 
 
 # ---------------------------------------------------------------------------
@@ -46,11 +53,11 @@ def _compute_trade_costs(df: pd.DataFrame) -> pd.DataFrame:
     ).fillna(100).astype(float)
     out["mid"] = pd.to_numeric(out["mid"], errors="coerce").astype(float)
     out["trade_cost"]         = (out["mid"] * out["multiplier"]).clip(lower=0.0)
-    out["trade_margin_proxy"] = (out["trade_cost"].abs() * 5.0).clip(lower=0.0)
+    out["trade_margin_proxy"] = (out["trade_cost"].abs() * MARGIN_PROXY_MULT).clip(lower=0.0)
     return out
 
 
-def _sector_of(row: pd.Series, has_sector: bool) -> str:
+def _sector_of(row, has_sector: bool) -> str:
     if has_sector and pd.notna(row.get("sector")):
         return str(row["sector"])
     return "UNKNOWN"
@@ -69,10 +76,16 @@ def optimize_trades_greedy(
     df = _compute_trade_costs(candidates)
     df = df.sort_values("pred_score", ascending=False).reset_index(drop=True)
 
+    # Pre-trim for speed on large option chains (mirrors the ILP solver).
+    if len(df) > MAX_CAND:
+        df = df.nlargest(MAX_CAND, "pred_score").reset_index(drop=True)
+
     has_sector = "sector" in df.columns
+    has_delta  = "delta" in df.columns
+    has_vega   = "vega" in df.columns
     cat = category.lower()
 
-    chosen: List[pd.Series] = []
+    chosen_idx: List[int] = []
     used_symbols: Dict[str, int] = {}
     used_sector_budget: Dict[str, float] = {}
     used_cost   = 0.0
@@ -80,8 +93,8 @@ def optimize_trades_greedy(
     used_delta  = 0.0
     used_vega   = 0.0
 
-    for _, row in df.iterrows():
-        if len(chosen) >= cons.max_trades:
+    for i, row in enumerate(df.to_dict("records")):
+        if len(chosen_idx) >= cons.max_trades:
             break
 
         sym = str(row["symbol"])
@@ -97,8 +110,8 @@ def optimize_trades_greedy(
                 continue
 
         # Greek caps
-        d = float(row["delta"]) if ("delta" in df.columns and pd.notna(row.get("delta"))) else 0.0
-        v = float(row["vega"])  if ("vega"  in df.columns and pd.notna(row.get("vega")))  else 0.0
+        d = float(row["delta"]) if (has_delta and pd.notna(row.get("delta"))) else 0.0
+        v = float(row["vega"])  if (has_vega  and pd.notna(row.get("vega")))  else 0.0
 
         if cons.max_abs_portfolio_delta is not None:
             if abs(used_delta + d) > cons.max_abs_portfolio_delta:
@@ -117,7 +130,7 @@ def optimize_trades_greedy(
                     continue
 
         # Accept
-        chosen.append(row)
+        chosen_idx.append(i)
         used_symbols[sym] = used_symbols.get(sym, 0) + 1
 
         if cat == "long_premium":
@@ -133,10 +146,10 @@ def optimize_trades_greedy(
             add = float(row["trade_cost"]) if cat == "long_premium" else float(row["trade_margin_proxy"])
             used_sector_budget[sec] = used_sector_budget.get(sec, 0.0) + add
 
-    if not chosen:
+    if not chosen_idx:
         return candidates.iloc[0:0].copy()
 
-    out = pd.DataFrame(chosen).copy()
+    out = df.iloc[chosen_idx].copy()
     out["selected"] = 1
     return out
 
@@ -157,7 +170,6 @@ def optimize_trades_ilp(
     df = _compute_trade_costs(candidates).reset_index(drop=True)
 
     # Pre-trim for speed on large option chains
-    MAX_CAND = 2000
     if len(df) > MAX_CAND:
         df = df.nlargest(MAX_CAND, "pred_score").reset_index(drop=True)
 
@@ -255,8 +267,6 @@ def build_constraints(
     topk: int,
 ) -> OptimizerConstraints:
     """Convert portfolio snapshot + configs into OptimizerConstraints."""
-    import numpy as np
-
     bp = float(portfolio_row.get("buying_power", np.nan))
     if not np.isfinite(bp) or bp <= 0:
         # No budget — return a zero-budget constraint that will select nothing

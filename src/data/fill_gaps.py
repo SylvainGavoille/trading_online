@@ -141,8 +141,20 @@ def fill_gaps(
             symbols[i : i + batch_size] for i in range(0, len(symbols), batch_size)
         ]
         for b_idx, batch in enumerate(batches, 1):
-            # fetch_batch needs a range; use [day, day] → 1-day window
+            # fetch_batch needs a range; use [day, day] → 1-day window.
+            # fetch_batch already retries transient failures with exponential
+            # backoff and returns {} when a batch is exhausted; symbols absent
+            # from its result are logged below.
             results = fetch_batch(batch, trading_day, trading_day)
+
+            failed_syms = [s for s in batch if s not in results]
+            if failed_syms:
+                print(
+                    f"  [WARN] {trading_day}: no data for "
+                    f"{len(failed_syms)} symbol(s) after retries: "
+                    f"{failed_syms[:10]}{'...' if len(failed_syms) > 10 else ''}",
+                    flush=True,
+                )
 
             for sym in batch:
                 df = results.get(sym)

@@ -177,8 +177,23 @@ class TradingEngineLite:
 
         # Calculer stop-loss (ATR basé sur volatilité)
         # Pour simplifier, on utilise un pourcentage de la bande Bollinger
-        bb_range = analysis['indicators']['bb_upper'] - analysis['indicators']['bb_lower']
-        atr_estimate = bb_range / 4  # Approximation simple
+        bb_upper = analysis['indicators']['bb_upper']
+        bb_lower = analysis['indicators']['bb_lower']
+        bb_range = None
+        if bb_upper is not None and bb_lower is not None:
+            bb_range = bb_upper - bb_lower
+
+        if bb_range and bb_range > 0:
+            atr_estimate = bb_range / 4  # Approximation simple
+        else:
+            # Bollinger indisponible/invalide : repli sur l'ATR réel
+            df = pd.DataFrame(self.ib_client.get_market_data(symbol))
+            atr_estimate = TechnicalAnalysis(df).calculate_atr(symbol)
+            if not atr_estimate or atr_estimate <= 0:
+                self.logger.warning(
+                    f"{symbol}: bande Bollinger et ATR indisponibles, pas de trade"
+                )
+                return None
 
         atr_multiplier = self.config['risk_management']['stop_loss']['atr_multiplier']
 
@@ -195,23 +210,37 @@ class TradingEngineLite:
         max_position = self.config['risk_management']['position_limits']['max_position_size']
         risk_per_trade = self.config['risk_management']['stop_loss']['max_loss_per_trade']
 
+        # Récupérer le capital réel depuis le compte IB (NetLiquidation).
+        # get_portfolio()/updatePortfolio() ne sont jamais alimentés, donc on
+        # lit la valeur de compte via get_account_summary comme src/ml/data/portfolio.py.
+        capital = None
+        try:
+            summary = self.ib_client.get_account_summary() or {}
+            capital = summary.get('NetLiquidation')
+        except Exception as e:
+            self.logger.warning(f"{symbol}: échec récupération NetLiquidation: {e}")
+        if not capital or capital <= 0:
+            self.logger.warning(
+                f"{symbol}: equity du compte indisponible (NetLiquidation={capital}), pas de trade"
+            )
+            return None
+
         # Taille basée sur le risque
         risk_amount = abs(current_price - stop_loss)
         if risk_amount > 0:
-            # Supposons un capital de base (à adapter)
-            capital = 100000  # TODO: Récupérer du portfolio
             max_risk_dollars = capital * risk_per_trade
             quantity = int(min(max_risk_dollars / risk_amount, max_position))
         else:
             quantity = max_position
 
+        # Clés alignées sur RiskValidator et TradeExecutor ('size', 'target_price').
         return {
             'symbol': symbol,
             'action': action,
-            'quantity': quantity,
+            'size': quantity,
             'price': current_price,
             'stop_loss': stop_loss,
-            'take_profit': take_profit,
+            'target_price': take_profit,
             'confidence': analysis['confidence'],
             'technical_score': analysis['technical_score']
         }
@@ -243,11 +272,13 @@ class TradingEngineLite:
             }
 
         # 2. Exécution (Python pur - 0$ API, juste frais IB)
-        self.logger.info(f"{symbol}: Executing trade - {trade_params['action']} {trade_params['quantity']} @ {trade_params['price']}")
+        self.logger.info(f"{symbol}: Executing trade - {trade_params['action']} {trade_params['size']} @ {trade_params['price']}")
 
         execution_result = self.trade_executor.execute_trade(trade_params)
 
         if execution_result['status'] == 'executed':
+            # Enregistrer la fréquence seulement après confirmation du fill
+            self.risk_validator.record_trade(symbol)
             self.logger.info(f"{symbol}: Trade executed successfully - {execution_result}")
             return {
                 'status': 'success',

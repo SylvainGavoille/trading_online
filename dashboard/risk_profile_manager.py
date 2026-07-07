@@ -33,6 +33,7 @@ RISK_PROFILES = {
             "Leveraged ETFs",
             "Penny stocks",
         ],
+        "max_position_pct": 10.0,
         "max_position_size": "10% of portfolio",
         "rebalancing_frequency": "Quarterly",
         "color": "#4CAF50",  # Green
@@ -60,6 +61,7 @@ RISK_PROFILES = {
             "Speculative trading",
             "Excessive concentration",
         ],
+        "max_position_pct": 15.0,
         "max_position_size": "15% of portfolio",
         "rebalancing_frequency": "Semi-annual",
         "color": "#FF9800",  # Orange
@@ -84,6 +86,7 @@ RISK_PROFILES = {
             "Cryptos (BTC-USD, ETH-USD)",
         ],
         "avoid": ["Over-diversification that dilutes gains", "Too much idle cash"],
+        "max_position_pct": 25.0,
         "max_position_size": "25% of portfolio",
         "rebalancing_frequency": "Annual or opportunistic",
         "color": "#F44336",  # Red
@@ -112,6 +115,7 @@ RISK_PROFILES = {
             "Neglecting stop-loss orders",
             "Emotional trading",
         ],
+        "max_position_pct": 30.0,
         "max_position_size": "30% of portfolio",
         "rebalancing_frequency": "Daily/Weekly",
         "warnings": [
@@ -227,9 +231,13 @@ class RiskProfileManager:
         position_pct = (position_value / portfolio_value) * 100
         profile = self.get_profile_details()
 
-        # Extract max percentage
-        max_size_str = profile["max_position_size"]
-        max_size_pct = float(max_size_str.replace("% of portfolio", ""))
+        # Max percentage from the numeric profile field; fall back to parsing
+        # the display string for any profile that predates max_position_pct.
+        max_size_pct = profile.get("max_position_pct")
+        if max_size_pct is None:
+            max_size_pct = float(
+                profile["max_position_size"].replace("% of portfolio", "")
+            )
 
         if position_pct > max_size_pct:
             return {

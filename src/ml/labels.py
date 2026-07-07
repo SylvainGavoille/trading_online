@@ -4,7 +4,28 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.ml.config import BacktestConfig
+from src.ml.config import BacktestConfig, MARGIN_PROXY_MULT
+
+
+def _forward_trading_date(dates: pd.Series, horizon: int) -> pd.Series:
+    """
+    Map each date to the trading date `horizon` positions ahead.
+
+    The trading-date calendar is the sorted unique set of dates present in
+    `dates`. Dates with no date `horizon` positions ahead (i.e. within the
+    last `horizon` trading days) map to NaT.
+    """
+    trading_dates = np.sort(dates.dropna().unique())
+    pos = {d: i for i, d in enumerate(trading_dates)}
+    n = len(trading_dates)
+
+    def _fwd(d):
+        i = pos.get(d)
+        if i is None or i + horizon >= n:
+            return pd.NaT
+        return trading_dates[i + horizon]
+
+    return dates.map(_fwd)
 
 
 def build_labels_for_horizon(
@@ -14,14 +35,15 @@ def build_labels_for_horizon(
     category: str,
 ) -> pd.DataFrame:
     """
-    For each option row at date t, look up mid price at t + horizon trading days
-    (calendar days used as proxy — options snapshots are only on trading days so
-    the merge will simply not find a match if t+H is a holiday/weekend, which is
-    acceptable for v1).
+    For each option row at date t, look up mid price `horizon` trading days
+    ahead. The forward date is resolved positionally against the sorted unique
+    set of trading dates actually present in the data (not by adding calendar
+    days, which would land on weekends/holidays and silently drop labels in a
+    biased pattern).
 
     Adds columns
     ------------
-    date_fwd      : t + timedelta(horizon)
+    date_fwd      : trading date `horizon` positions after t (NaT near the end)
     mid_fwd       : mid price at that future date (NaN if unavailable)
     valid_label   : 1 if mid_fwd exists and option has not expired
     pnl           : realized PnL per contract (in $)
@@ -30,7 +52,7 @@ def build_labels_for_horizon(
     """
     df = opt_feat.copy()
     key_cols = ["symbol", "right", "expiry", "strike"]
-    df["date_fwd"] = df["date"] + pd.Timedelta(days=horizon)
+    df["date_fwd"] = _forward_trading_date(df["date"], horizon)
 
     # Future mid look-up via MultiIndex hash (O(N) vs O(N log N) merge)
     mid_series = df.set_index(key_cols + ["date"])["mid"]
@@ -63,7 +85,7 @@ def build_labels_for_horizon(
         entry  = entry_mid * (1.0 - slip) * mult - comm   # net credit
         exitv  = exit_mid  * (1.0 + slip) * mult
         pnl    = entry - exitv
-        risk   = np.maximum(entry.abs() * 5.0, 1.0)       # 5× credit proxy
+        risk   = np.maximum(entry.abs() * MARGIN_PROXY_MULT, 1.0)   # credit-based margin proxy
 
     else:
         raise ValueError(f"Unknown category for labeling: {category}")

@@ -151,7 +151,21 @@ class StockSearchAgent(dspy.Module):
             available_str = "Aucun instrument disponible pour cette requete."
 
         hint = f"{user_query} (max {max_results} results)"
-        return self.react(user_query=hint, available_symbols=available_str)
+        result = self.react(user_query=hint, available_symbols=available_str)
+
+        # Garde-fou anti-injection : ne garder que les symboles réellement présents
+        # dans les candidats. Le LLM ne peut pas introduire de symbole arbitraire,
+        # même si le prompt est manipulé.
+        allowed_symbols = {r["symbol"] for r in candidates}
+        if allowed_symbols and getattr(result, "selected_stocks", None):
+            kept_lines = []
+            for line in result.selected_stocks.strip().split("\n"):
+                symbol = line.split("|")[0].strip()
+                if symbol in allowed_symbols:
+                    kept_lines.append(line)
+            result.selected_stocks = "\n".join(kept_lines)
+
+        return result
 
 
 # ---------------------------------------------------------------------------
